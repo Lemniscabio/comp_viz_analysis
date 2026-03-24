@@ -154,9 +154,8 @@ class MainWindow(QMainWindow):
         ctrl.roi_mode_requested.connect(
             lambda: self._video_panel.set_mode(InteractionMode.ROI)
         )
-        ctrl.mask_mode_requested.connect(
-            lambda: self._video_panel.set_mode(InteractionMode.MASK)
-        )
+        ctrl.mask_mode_requested.connect(self._on_mask_mode)
+        ctrl.erase_mode_requested.connect(self._on_erase_mode)
         ctrl.view_mode_requested.connect(
             lambda: self._video_panel.set_mode(InteractionMode.VIEW)
         )
@@ -196,6 +195,14 @@ class MainWindow(QMainWindow):
         self._video_panel.set_mode(InteractionMode.VIEW)
         self._controls.deactivate_tools()
         self._set_state(AppState.CONFIGURED)
+
+    def _on_mask_mode(self) -> None:
+        self._video_panel.selector.set_erasing(False)
+        self._video_panel.set_mode(InteractionMode.MASK)
+
+    def _on_erase_mode(self) -> None:
+        self._video_panel.selector.set_erasing(True)
+        self._video_panel.set_mode(InteractionMode.MASK)
 
     def _on_clear_roi(self) -> None:
         self._video_panel.selector.clear_roi()

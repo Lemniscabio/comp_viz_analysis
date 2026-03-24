@@ -28,6 +28,7 @@ class ControlsPanel(QWidget):
     export_requested = pyqtSignal()
     roi_mode_requested = pyqtSignal()
     mask_mode_requested = pyqtSignal()
+    erase_mode_requested = pyqtSignal()
     clear_roi_requested = pyqtSignal()
     clear_mask_requested = pyqtSignal()
     view_mode_requested = pyqtSignal()
@@ -58,15 +59,23 @@ class ControlsPanel(QWidget):
 
         self._btn_mask = QPushButton("Draw Mask")
         self._btn_mask.setToolTip(
-            "Paint over areas to EXCLUDE from analysis\n"
+            "Click and drag to paint areas to EXCLUDE from analysis\n"
             "(e.g. tubes, clamps, labels blocking the view).\n"
             "Scroll wheel to change brush size.\n"
-            "Click again to clear all masks."
+            "Click button again to clear all masks."
         )
         self._btn_mask.setCheckable(True)
 
+        self._btn_erase = QPushButton("Erase Mask")
+        self._btn_erase.setToolTip(
+            "Click and drag to RESTORE masked areas.\n"
+            "Scroll wheel to change brush size."
+        )
+        self._btn_erase.setCheckable(True)
+
         row1.addWidget(self._btn_roi)
         row1.addWidget(self._btn_mask)
+        row1.addWidget(self._btn_erase)
         row1.addSpacing(16)
 
         self._btn_start = QPushButton("Start Analysis")
@@ -174,6 +183,7 @@ class ControlsPanel(QWidget):
         self._btn_upload.clicked.connect(self._on_upload)
         self._btn_roi.clicked.connect(self._on_roi_toggle)
         self._btn_mask.clicked.connect(self._on_mask_toggle)
+        self._btn_erase.clicked.connect(self._on_erase_toggle)
         self._btn_start.clicked.connect(lambda: self.start_requested.emit())
         self._btn_stop.clicked.connect(lambda: self.stop_requested.emit())
         self._btn_export.clicked.connect(lambda: self.export_requested.emit())
@@ -208,12 +218,24 @@ class ControlsPanel(QWidget):
         if self._btn_mask.isChecked():
             self._btn_roi.setChecked(False)
             self._btn_roi.setText("Select ROI")
+            self._btn_erase.setChecked(False)
             self._btn_mask.setText("Painting... (scroll=size, click to clear)")
             self.mask_mode_requested.emit()
         else:
-            # Uncheck = clear mask
             self._btn_mask.setText("Draw Mask")
             self.clear_mask_requested.emit()
+            self.view_mode_requested.emit()
+
+    def _on_erase_toggle(self) -> None:
+        if self._btn_erase.isChecked():
+            self._btn_roi.setChecked(False)
+            self._btn_roi.setText("Select ROI")
+            self._btn_mask.setChecked(False)
+            self._btn_mask.setText("Draw Mask")
+            self._btn_erase.setText("Erasing... (scroll=size)")
+            self.erase_mode_requested.emit()
+        else:
+            self._btn_erase.setText("Erase Mask")
             self.view_mode_requested.emit()
 
     def deactivate_tools(self) -> None:
@@ -222,6 +244,8 @@ class ControlsPanel(QWidget):
         self._btn_roi.setText("Select ROI")
         self._btn_mask.setChecked(False)
         self._btn_mask.setText("Draw Mask")
+        self._btn_erase.setChecked(False)
+        self._btn_erase.setText("Erase Mask")
 
     def set_state(self, state: AppState) -> None:
         """Enable/disable controls based on app state."""
@@ -235,6 +259,7 @@ class ControlsPanel(QWidget):
         self._btn_upload.setEnabled(idle or ready or configured)
         self._btn_roi.setEnabled(ready or configured)
         self._btn_mask.setEnabled(ready or configured)
+        self._btn_erase.setEnabled(ready or configured)
         self._btn_start.setEnabled(ready or configured)
         self._btn_stop.setEnabled(running or paused)
         self._btn_export.setEnabled(running or paused or configured)

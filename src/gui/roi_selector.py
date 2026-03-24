@@ -25,6 +25,7 @@ class RoiSelector:
         self._display_size: Optional[Tuple[int, int]] = None
         self._mode = InteractionMode.VIEW
         self._brush_size = 20
+        self._erasing = False
         self._drawing = False
         self._dragging = False
         self._resizing = False
@@ -197,15 +198,12 @@ class RoiSelector:
             self._roi = (new_x, new_y, w, h)
             return
 
-        # Mask mode: paint on hover, no click needed
-        if self._mode == InteractionMode.MASK:
-            self._paint_mask(pos)
-            return
-
         if not self._drawing:
             return
         if self._mode == InteractionMode.ROI:
             self._roi_current = pos
+        elif self._mode == InteractionMode.MASK:
+            self._paint_mask(pos)
 
     def on_mouse_release(self, pos: QPoint) -> None:
         if self._resizing:
@@ -232,8 +230,12 @@ class RoiSelector:
         if self._mode == InteractionMode.MASK:
             self._brush_size = max(5, min(100, self._brush_size + (delta // 120) * 5))
 
+    def set_erasing(self, erasing: bool) -> None:
+        """Toggle between paint (exclude) and erase (restore) mode."""
+        self._erasing = erasing
+
     def _paint_mask(self, pos: QPoint) -> None:
-        """Paint exclusion area on the mask using NumPy vectorized circular brush."""
+        """Paint or erase on the mask using NumPy vectorized circular brush."""
         if self._mask is None or not self._frame_size:
             return
         fx, fy = self._display_to_frame(pos)
@@ -252,7 +254,7 @@ class RoiSelector:
         if y_max > y_min and x_max > x_min:
             yy, xx = np.ogrid[y_min:y_max, x_min:x_max]
             circle = (xx - fx) ** 2 + (yy - fy) ** 2 <= radius ** 2
-            self._mask[y_min:y_max, x_min:x_max][circle] = 0
+            self._mask[y_min:y_max, x_min:x_max][circle] = 1 if self._erasing else 0
 
     def draw_roi_overlay(self, painter: QPainter) -> None:
         """Draw ROI rectangle with corner/edge resize handles."""
