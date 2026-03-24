@@ -31,6 +31,8 @@ class VideoPanel(QWidget):
         layout.addWidget(self._label)
 
         self._selector = RoiSelector()
+        self._pixmap_offset_x = 0
+        self._pixmap_offset_y = 0
         self._current_frame: Optional[np.ndarray] = None
         self._pixel_delta_e: Optional[np.ndarray] = None
         self._show_grid = False
@@ -105,6 +107,10 @@ class VideoPanel(QWidget):
 
         self._selector.set_display_size(pixmap.width(), pixmap.height())
 
+        # Track pixmap offset within the label (centered by Qt)
+        self._pixmap_offset_x = (self._label.width() - pixmap.width()) // 2
+        self._pixmap_offset_y = (self._label.height() - pixmap.height()) // 2
+
         painter = QPainter(pixmap)
         self._selector.draw_roi_overlay(painter)
         self._selector.draw_mask_overlay(painter, pixmap.width(), pixmap.height())
@@ -142,15 +148,16 @@ class VideoPanel(QWidget):
             x = int(c * cell_w)
             painter.drawLine(x, 0, x, ph)
 
+    def _label_to_pixmap_pos(self, pos) -> QPoint:
+        """Convert label coordinates to pixmap coordinates."""
+        from PyQt6.QtCore import QPoint as QP
+        return QP(pos.x() - self._pixmap_offset_x, pos.y() - self._pixmap_offset_y)
+
     _HANDLE_CURSORS = {
         "tl": Qt.CursorShape.SizeFDiagCursor,
         "br": Qt.CursorShape.SizeFDiagCursor,
         "tr": Qt.CursorShape.SizeBDiagCursor,
         "bl": Qt.CursorShape.SizeBDiagCursor,
-        "t": Qt.CursorShape.SizeVerCursor,
-        "b": Qt.CursorShape.SizeVerCursor,
-        "l": Qt.CursorShape.SizeHorCursor,
-        "r": Qt.CursorShape.SizeHorCursor,
     }
 
     def _update_cursor(self, pos) -> None:
@@ -188,20 +195,23 @@ class VideoPanel(QWidget):
                 if event.button() == Qt.MouseButton.RightButton:
                     self.reference_frame_requested.emit()
                     return True
-                self._selector.on_mouse_press(event.pos())
-                self._update_cursor(event.pos())
+                ppos = self._label_to_pixmap_pos(event.pos())
+                self._selector.on_mouse_press(ppos)
+                self._update_cursor(ppos)
                 return True
             elif event.type() == QEvent.Type.MouseMove:
-                self._selector.on_mouse_move(event.pos())
-                self._update_cursor(event.pos())
+                ppos = self._label_to_pixmap_pos(event.pos())
+                self._selector.on_mouse_move(ppos)
+                self._update_cursor(ppos)
                 if (self._selector.mode != InteractionMode.VIEW
                         or self._selector._dragging
                         or self._selector._resizing):
                     self._refresh_display()
                 return True
             elif event.type() == QEvent.Type.MouseButtonRelease:
-                self._selector.on_mouse_release(event.pos())
-                self._update_cursor(event.pos())
+                ppos = self._label_to_pixmap_pos(event.pos())
+                self._selector.on_mouse_release(ppos)
+                self._update_cursor(ppos)
                 if self._selector.roi:
                     self.roi_selected.emit(self._selector.roi)
                 self._refresh_display()

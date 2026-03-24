@@ -93,7 +93,7 @@ class RoiSelector:
         return (x * dw / fw, y * dh / fh, w * dw / fw, h * dh / fh)
 
     def get_resize_handle(self, pos: QPoint) -> Optional[str]:
-        """Check if pos is near a corner or edge handle. Returns handle id or None."""
+        """Check if pos is near a corner handle. Returns handle id or None."""
         rect = self._get_roi_display_rect()
         if not rect:
             return None
@@ -101,7 +101,6 @@ class RoiSelector:
         px, py = pos.x(), pos.y()
         hs = self._handle_size
 
-        # Corners first (higher priority)
         if abs(px - dx) < hs and abs(py - dy) < hs:
             return "tl"
         if abs(px - (dx + dw)) < hs and abs(py - dy) < hs:
@@ -110,27 +109,6 @@ class RoiSelector:
             return "bl"
         if abs(px - (dx + dw)) < hs and abs(py - (dy + dh)) < hs:
             return "br"
-        # Edges
-        if abs(py - dy) < hs and dx < px < dx + dw:
-            return "t"
-        if abs(py - (dy + dh)) < hs and dx < px < dx + dw:
-            return "b"
-        if abs(px - dx) < hs and dy < py < dy + dh:
-            return "l"
-        if abs(px - (dx + dw)) < hs and dy < py < dy + dh:
-            return "r"
-        return None
-
-    def get_cursor_for_handle(self, handle: Optional[str]) -> Optional[str]:
-        """Return cursor type string for a given handle."""
-        if handle in ("tl", "br"):
-            return "size_fdiag"
-        if handle in ("tr", "bl"):
-            return "size_bdiag"
-        if handle in ("t", "b"):
-            return "size_ver"
-        if handle in ("l", "r"):
-            return "size_hor"
         return None
 
     def _is_inside_roi_display(self, pos: QPoint) -> bool:
@@ -181,20 +159,20 @@ class RoiSelector:
         if self._resizing and self._roi and self._resize_handle:
             fx, fy = self._display_to_frame(pos)
             x, y, w, h = self._roi
-            r, b = x + w, y + h  # right, bottom edges
+            right, bottom = x + w, y + h
 
-            if "l" in self._resize_handle:
-                new_x = min(fx, r - 10)
-                w = r - new_x
-                x = new_x
-            if "r" in self._resize_handle:
-                w = max(10, fx - x)
-            if "t" in self._resize_handle:
-                new_y = min(fy, b - 10)
-                h = b - new_y
-                y = new_y
-            if "b" in self._resize_handle:
-                h = max(10, fy - y)
+            handle = self._resize_handle
+            if handle == "tl":
+                x, y = min(fx, right - 10), min(fy, bottom - 10)
+                w, h = right - x, bottom - y
+            elif handle == "tr":
+                y = min(fy, bottom - 10)
+                w, h = max(10, fx - x), bottom - y
+            elif handle == "bl":
+                x = min(fx, right - 10)
+                w, h = right - x, max(10, fy - y)
+            elif handle == "br":
+                w, h = max(10, fx - x), max(10, fy - y)
 
             if self._frame_size:
                 fw, fh = self._frame_size
@@ -289,23 +267,19 @@ class RoiSelector:
             painter.setPen(pen)
             painter.drawRect(dx, dy, dw_roi, dh_roi)
 
-            # Draw resize handles at corners and edge midpoints
-            hs = 6  # half handle size
+            # Draw resize handles at corners only
+            hs = 5  # half handle size
             handle_pen = QPen(QColor(255, 255, 255), 1)
             painter.setPen(handle_pen)
             painter.setBrush(QColor(0, 255, 0))
-            handle_points = [
-                (dx, dy),                               # top-left
-                (dx + dw_roi, dy),                      # top-right
-                (dx, dy + dh_roi),                      # bottom-left
-                (dx + dw_roi, dy + dh_roi),             # bottom-right
-                (dx + dw_roi // 2, dy),                 # top-mid
-                (dx + dw_roi // 2, dy + dh_roi),        # bottom-mid
-                (dx, dy + dh_roi // 2),                 # left-mid
-                (dx + dw_roi, dy + dh_roi // 2),        # right-mid
+            corners = [
+                (dx, dy),
+                (dx + dw_roi, dy),
+                (dx, dy + dh_roi),
+                (dx + dw_roi, dy + dh_roi),
             ]
-            for hx, hy in handle_points:
-                painter.drawRect(hx - hs, hy - hs, hs * 2, hs * 2)
+            for cx, cy in corners:
+                painter.drawRect(cx - hs, cy - hs, hs * 2, hs * 2)
         elif (self._drawing and self._mode == InteractionMode.ROI
               and self._roi_start and self._roi_current):
             pen = QPen(QColor(0, 255, 0), 2, Qt.PenStyle.DashLine)
