@@ -23,7 +23,6 @@ class ControlsPanel(QWidget):
     """Control buttons, config sliders/dropdowns, and state management."""
 
     video_selected = pyqtSignal(str)
-    camera_requested = pyqtSignal(int)
     start_requested = pyqtSignal()
     stop_requested = pyqtSignal()
     export_requested = pyqtSignal()
@@ -31,6 +30,7 @@ class ControlsPanel(QWidget):
     mask_mode_requested = pyqtSignal()
     clear_roi_requested = pyqtSignal()
     clear_mask_requested = pyqtSignal()
+    view_mode_requested = pyqtSignal()
     config_changed = pyqtSignal(dict)
 
     def __init__(self, parent=None) -> None:
@@ -45,42 +45,28 @@ class ControlsPanel(QWidget):
         self._btn_upload.setToolTip(
             "Open a video file (MP4, AVI, MOV) to analyze"
         )
-
-        self._btn_camera = QPushButton("Live Camera")
-        self._btn_camera.setToolTip(
-            "Start analyzing a live camera feed"
-        )
-
-        # Separator
         row1.addWidget(self._btn_upload)
-        row1.addWidget(self._btn_camera)
         row1.addSpacing(16)
 
         self._btn_roi = QPushButton("Select ROI")
         self._btn_roi.setToolTip(
             "Draw a rectangle around the region to analyze.\n"
-            "Click and drag on the video to select."
+            "Click and drag on the video to select.\n"
+            "Click again to clear and redraw."
         )
         self._btn_roi.setCheckable(True)
 
-        self._btn_clear_roi = QPushButton("Clear ROI")
-        self._btn_clear_roi.setToolTip("Remove the selected region and analyze the full frame")
-
-        self._btn_mask = QPushButton("Exclude Areas")
+        self._btn_mask = QPushButton("Draw Mask")
         self._btn_mask.setToolTip(
             "Paint over areas to EXCLUDE from analysis\n"
             "(e.g. tubes, clamps, labels blocking the view).\n"
-            "Scroll wheel to change brush size."
+            "Scroll wheel to change brush size.\n"
+            "Click again to clear all masks."
         )
         self._btn_mask.setCheckable(True)
 
-        self._btn_clear_mask = QPushButton("Clear Exclusions")
-        self._btn_clear_mask.setToolTip("Remove all excluded areas")
-
         row1.addWidget(self._btn_roi)
-        row1.addWidget(self._btn_clear_roi)
         row1.addWidget(self._btn_mask)
-        row1.addWidget(self._btn_clear_mask)
         row1.addSpacing(16)
 
         self._btn_start = QPushButton("Start Analysis")
@@ -121,29 +107,41 @@ class ControlsPanel(QWidget):
 
         row3.addWidget(QLabel("Grid:"))
         self._combo_grid = QComboBox()
-        self._combo_grid.setToolTip("Grid size for spatial analysis (rows x columns)")
+        self._combo_grid.setToolTip(
+            "Grid size for spatial analysis.\n"
+            "More cells = finer resolution, fewer = faster."
+        )
         self._combo_grid.addItems(["3x3", "4x4", "5x5", "6x6", "8x8", "10x10"])
         self._combo_grid.setCurrentText("5x5")
         row3.addWidget(self._combo_grid)
 
         row3.addWidget(QLabel("Frame Skip:"))
         self._combo_skip = QComboBox()
-        self._combo_skip.setToolTip("Analyze every Nth frame (higher = faster, less detail)")
+        self._combo_skip.setToolTip(
+            "Analyze every Nth frame.\n"
+            "1 = every frame, 5 = every 5th frame.\n"
+            "Higher = faster but less temporal detail."
+        )
         self._combo_skip.addItems(["1", "2", "3", "5", "10"])
         row3.addWidget(self._combo_skip)
 
         row3.addWidget(QLabel("GLCM Skip:"))
         self._combo_glcm_skip = QComboBox()
         self._combo_glcm_skip.setToolTip(
-            "Recompute texture metrics every Nth frame\n"
-            "(higher = faster, texture metrics hold their last value)"
+            "Recompute texture metrics (Contrast, Homogeneity, Energy)\n"
+            "every Nth analyzed frame. These are the slowest metrics.\n"
+            "Higher = faster. Values hold steady between updates."
         )
         self._combo_glcm_skip.addItems(["1", "2", "3", "5", "10"])
         row3.addWidget(self._combo_glcm_skip)
 
         row3.addWidget(QLabel("GLCM Levels:"))
         self._combo_levels = QComboBox()
-        self._combo_levels.setToolTip("Gray level quantization for texture analysis (fewer = faster)")
+        self._combo_levels.setToolTip(
+            "Gray level quantization for texture analysis.\n"
+            "16 = recommended (fast, robust).\n"
+            "64 = more detail but slower."
+        )
         self._combo_levels.addItems(["8", "16", "32", "64"])
         self._combo_levels.setCurrentText("16")
         row3.addWidget(self._combo_levels)
@@ -152,7 +150,9 @@ class ControlsPanel(QWidget):
         self._slider_threshold = QSlider(Qt.Orientation.Horizontal)
         self._slider_threshold.setToolTip(
             "Grayscale threshold for Contact metric (0-255).\n"
-            "Pixels above = white, below = black."
+            "Pixels above = white, below = black.\n"
+            "Contact counts the boundary between them.\n"
+            "Adjust based on your liquid color."
         )
         self._slider_threshold.setRange(0, 255)
         self._slider_threshold.setValue(128)
@@ -172,11 +172,8 @@ class ControlsPanel(QWidget):
 
         # Connections
         self._btn_upload.clicked.connect(self._on_upload)
-        self._btn_camera.clicked.connect(self._on_camera)
         self._btn_roi.clicked.connect(self._on_roi_toggle)
-        self._btn_clear_roi.clicked.connect(lambda: self.clear_roi_requested.emit())
         self._btn_mask.clicked.connect(self._on_mask_toggle)
-        self._btn_clear_mask.clicked.connect(lambda: self.clear_mask_requested.emit())
         self._btn_start.clicked.connect(lambda: self.start_requested.emit())
         self._btn_stop.clicked.connect(lambda: self.stop_requested.emit())
         self._btn_export.clicked.connect(lambda: self.export_requested.emit())
@@ -189,25 +186,33 @@ class ControlsPanel(QWidget):
     def _on_roi_toggle(self) -> None:
         if self._btn_roi.isChecked():
             self._btn_mask.setChecked(False)
-            self._btn_roi.setText("Drawing ROI...")
+            self._btn_mask.setText("Draw Mask")
+            self._btn_roi.setText("Drawing ROI... (click to clear)")
             self.roi_mode_requested.emit()
         else:
+            # Uncheck = clear ROI
             self._btn_roi.setText("Select ROI")
+            self.clear_roi_requested.emit()
+            self.view_mode_requested.emit()
 
     def _on_mask_toggle(self) -> None:
         if self._btn_mask.isChecked():
             self._btn_roi.setChecked(False)
-            self._btn_mask.setText("Painting... (scroll=size)")
+            self._btn_roi.setText("Select ROI")
+            self._btn_mask.setText("Painting... (scroll=size, click to clear)")
             self.mask_mode_requested.emit()
         else:
-            self._btn_mask.setText("Exclude Areas")
+            # Uncheck = clear mask
+            self._btn_mask.setText("Draw Mask")
+            self.clear_mask_requested.emit()
+            self.view_mode_requested.emit()
 
     def deactivate_tools(self) -> None:
         """Reset tool buttons to inactive state."""
         self._btn_roi.setChecked(False)
         self._btn_roi.setText("Select ROI")
         self._btn_mask.setChecked(False)
-        self._btn_mask.setText("Exclude Areas")
+        self._btn_mask.setText("Draw Mask")
 
     def set_state(self, state: AppState) -> None:
         """Enable/disable controls based on app state."""
@@ -219,21 +224,16 @@ class ControlsPanel(QWidget):
         paused = state == AppState.PAUSED
 
         self._btn_upload.setEnabled(idle or ready or configured)
-        self._btn_camera.setEnabled(idle or ready or configured)
         self._btn_roi.setEnabled(ready or configured)
-        self._btn_clear_roi.setEnabled(ready or configured)
         self._btn_mask.setEnabled(ready or configured)
-        self._btn_clear_mask.setEnabled(ready or configured)
-        self._btn_start.setEnabled(configured)
+        self._btn_start.setEnabled(ready or configured)
         self._btn_stop.setEnabled(running or paused)
         self._btn_export.setEnabled(running or paused or configured)
 
-        # Progress bar visibility
         self._progress_bar.setVisible(running)
         if not running:
             self._progress_bar.setValue(0)
 
-        # Deactivate drawing tools when running
         if running:
             self.deactivate_tools()
 
@@ -251,7 +251,7 @@ class ControlsPanel(QWidget):
             pct = current / total * 100
             self._progress_bar.setFormat(f"{current}/{total} frames ({pct:.0f}%)")
         else:
-            self._progress_bar.setMaximum(0)  # indeterminate
+            self._progress_bar.setMaximum(0)
             self._progress_bar.setFormat(f"{current} frames (live)")
 
     def get_config(self) -> Dict[str, Any]:
@@ -279,6 +279,3 @@ class ControlsPanel(QWidget):
         )
         if path:
             self.video_selected.emit(path)
-
-    def _on_camera(self) -> None:
-        self.camera_requested.emit(0)

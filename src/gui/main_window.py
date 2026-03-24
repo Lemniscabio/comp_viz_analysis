@@ -8,7 +8,7 @@ import numpy as np
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import (
-    QFileDialog, QMainWindow, QMessageBox, QSplitter,
+    QDockWidget, QFileDialog, QMainWindow, QMessageBox, QSplitter,
     QStatusBar, QVBoxLayout, QWidget,
 )
 
@@ -18,7 +18,6 @@ from src.gui.controls_panel import AppState, ControlsPanel
 from src.gui.plots_panel import PlotsPanel
 from src.gui.roi_selector import InteractionMode
 from src.gui.video_panel import VideoPanel
-from src.utils.config_loader import load_config
 
 
 class MainWindow(QMainWindow):
@@ -31,7 +30,6 @@ class MainWindow(QMainWindow):
 
         self._worker: Optional[AnalysisWorker] = None
         self._video_path: Optional[str] = None
-        self._camera_index: Optional[int] = None
         self._reference_frame_num = 0
         self._current_frame_num = 0
         self._state = AppState.IDLE
@@ -41,29 +39,39 @@ class MainWindow(QMainWindow):
         self._connect_signals()
 
     def _setup_ui(self) -> None:
-        central = QWidget()
-        self.setCentralWidget(central)
-        layout = QVBoxLayout(central)
-
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        self._video_panel = VideoPanel()
+        # Plots as central widget
         self._plots_panel = PlotsPanel()
-        splitter.addWidget(self._video_panel)
-        splitter.addWidget(self._plots_panel)
-        splitter.setStretchFactor(0, 2)
-        splitter.setStretchFactor(1, 3)
-        layout.addWidget(splitter)
+        self.setCentralWidget(self._plots_panel)
 
+        # Video panel as a dockable sidebar (left)
+        self._video_panel = VideoPanel()
+        self._video_dock = QDockWidget("Video", self)
+        self._video_dock.setWidget(self._video_panel)
+        self._video_dock.setFeatures(
+            QDockWidget.DockWidgetFeature.DockWidgetClosable
+            | QDockWidget.DockWidgetFeature.DockWidgetMovable
+        )
+        self._video_dock.setMinimumWidth(300)
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self._video_dock)
+
+        # Controls as a dockable panel (bottom)
         self._controls = ControlsPanel()
-        layout.addWidget(self._controls)
+        self._controls_dock = QDockWidget("Controls", self)
+        self._controls_dock.setWidget(self._controls)
+        self._controls_dock.setFeatures(
+            QDockWidget.DockWidgetFeature.DockWidgetMovable
+        )
+        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self._controls_dock)
 
+        # Status bar
         self._status = QStatusBar()
         self.setStatusBar(self._status)
-        self._status.showMessage("Ready")
+        self._status.showMessage("Open a video file to begin")
 
     def _setup_menu(self) -> None:
         menubar = self.menuBar()
 
+        # File menu
         file_menu = menubar.addMenu("File")
         open_action = QAction("Open Video", self)
         open_action.triggered.connect(self._on_open_video_menu)
@@ -73,22 +81,32 @@ class MainWindow(QMainWindow):
         quit_action.triggered.connect(self.close)
         file_menu.addAction(quit_action)
 
+        # Export menu
         export_menu = menubar.addMenu("Export")
         export_action = QAction("Export Data", self)
         export_action.triggered.connect(self._on_export)
         export_menu.addAction(export_action)
 
-        settings_menu = menubar.addMenu("Settings")
+        # View menu
+        view_menu = menubar.addMenu("View")
+
+        video_toggle = self._video_dock.toggleViewAction()
+        video_toggle.setText("Show Video Panel")
+        view_menu.addAction(video_toggle)
+
+        view_menu.addSeparator()
+
         grid_toggle = QAction("Toggle Grid Overlay", self)
         grid_toggle.setCheckable(True)
         grid_toggle.triggered.connect(self._video_panel.set_grid_visible)
-        settings_menu.addAction(grid_toggle)
+        view_menu.addAction(grid_toggle)
 
         heatmap_toggle = QAction("Toggle Heatmap Overlay", self)
         heatmap_toggle.setCheckable(True)
         heatmap_toggle.triggered.connect(self._video_panel.set_heatmap_visible)
-        settings_menu.addAction(heatmap_toggle)
+        view_menu.addAction(heatmap_toggle)
 
+        # Help menu
         help_menu = menubar.addMenu("Help")
         about_action = QAction("About", self)
         about_action.triggered.connect(
@@ -97,7 +115,13 @@ class MainWindow(QMainWindow):
                 "About Kineticolor",
                 "Kineticolor - Computer Vision Mixing Analysis\n\n"
                 "Real-time kinetic analysis of mixing phenomena\n"
-                "in reaction vessels using 6 complementary metrics.",
+                "in reaction vessels using 6 complementary metrics.\n\n"
+                "Workflow:\n"
+                "1. Open a video file\n"
+                "2. Select ROI (region of interest)\n"
+                "3. Optionally draw mask to exclude areas\n"
+                "4. Click Start Analysis\n"
+                "5. Export results when done",
             )
         )
         help_menu.addAction(about_action)
@@ -105,7 +129,6 @@ class MainWindow(QMainWindow):
     def _connect_signals(self) -> None:
         ctrl = self._controls
         ctrl.video_selected.connect(self._on_video_selected)
-        ctrl.camera_requested.connect(self._on_camera_requested)
         ctrl.start_requested.connect(self._on_start)
         ctrl.stop_requested.connect(self._on_stop)
         ctrl.export_requested.connect(self._on_export)
@@ -114,6 +137,9 @@ class MainWindow(QMainWindow):
         )
         ctrl.mask_mode_requested.connect(
             lambda: self._video_panel.set_mode(InteractionMode.MASK)
+        )
+        ctrl.view_mode_requested.connect(
+            lambda: self._video_panel.set_mode(InteractionMode.VIEW)
         )
         ctrl.clear_roi_requested.connect(self._on_clear_roi)
         ctrl.clear_mask_requested.connect(self._on_clear_mask)
@@ -126,8 +152,9 @@ class MainWindow(QMainWindow):
 
     def _on_video_selected(self, path: str) -> None:
         self._video_path = path
-        self._camera_index = None
-        self._status.showMessage(f"Video loaded: {Path(path).name}")
+        self._status.showMessage(
+            f"Video loaded: {Path(path).name} -- Select ROI or click Start Analysis"
+        )
 
         import cv2
 
@@ -135,14 +162,10 @@ class MainWindow(QMainWindow):
         ret, frame = cap.read()
         if ret:
             self._video_panel.update_frame(frame)
+            # Make sure video panel is visible
+            self._video_dock.setVisible(True)
         cap.release()
 
-        self._set_state(AppState.READY)
-
-    def _on_camera_requested(self, index: int) -> None:
-        self._camera_index = index
-        self._video_path = None
-        self._status.showMessage(f"Camera {index} selected")
         self._set_state(AppState.READY)
 
     def _on_roi_selected(self, roi: tuple) -> None:
@@ -158,12 +181,13 @@ class MainWindow(QMainWindow):
         self._video_panel.selector.clear_roi()
         self._video_panel._refresh_display()
         self._status.showMessage("ROI cleared -- full frame will be analyzed")
-        self._set_state(AppState.READY)
+        if self._video_path:
+            self._set_state(AppState.READY)
 
     def _on_clear_mask(self) -> None:
         self._video_panel.selector.clear_mask()
         self._video_panel._refresh_display()
-        self._status.showMessage("Exclusion areas cleared")
+        self._status.showMessage("Mask cleared")
 
     def _on_set_reference(self) -> None:
         self._reference_frame_num = self._current_frame_num
@@ -185,12 +209,15 @@ class MainWindow(QMainWindow):
         self._video_panel.set_grid_size(grid_size, grid_size)
         self._plots_panel.clear_data()
 
+        # Allow start without explicit ROI (uses full frame)
+        roi = self._video_panel.selector.roi
+        mask = self._video_panel.selector.mask
+
         self._worker = AnalysisWorker(
             config=config,
             video_path=self._video_path,
-            camera_index=self._camera_index,
-            roi=self._video_panel.selector.roi,
-            mask=self._video_panel.selector.mask,
+            roi=roi,
+            mask=mask,
             reference_frame_num=self._reference_frame_num,
         )
 
@@ -237,7 +264,7 @@ class MainWindow(QMainWindow):
                 f"Analyzing: {current}/{total} frames ({pct:.0f}%)"
             )
         else:
-            self._status.showMessage(f"Analyzing: {current} frames (live)")
+            self._status.showMessage(f"Analyzing: {current} frames")
 
     def _on_analysis_finished(self) -> None:
         self._set_state(AppState.CONFIGURED)
@@ -245,7 +272,7 @@ class MainWindow(QMainWindow):
         if self._worker and self._worker.engine:
             count = len(self._worker.engine.results)
         self._status.showMessage(
-            f"Analysis complete. {count} frames processed."
+            f"Analysis complete. {count} frames processed. Click 'Export Data' to save results."
         )
 
     def _on_error(self, msg: str) -> None:
@@ -256,7 +283,7 @@ class MainWindow(QMainWindow):
 
     def _on_export(self) -> None:
         if not self._worker or not self._worker.engine or not self._worker.engine.results:
-            QMessageBox.warning(self, "Export", "No data to export.")
+            QMessageBox.warning(self, "Export", "No data to export. Run analysis first.")
             return
 
         config = self._controls.get_config()
