@@ -60,8 +60,9 @@ class ControlsPanel(QWidget):
         self._btn_mask.setToolTip(
             "Paint over areas to EXCLUDE from analysis\n"
             "(e.g. tubes, clamps, labels blocking the view).\n"
+            "Right-click to ERASE masked areas.\n"
             "Scroll wheel to change brush size.\n"
-            "Click again to clear all masks."
+            "Click button again to clear all masks."
         )
         self._btn_mask.setCheckable(True)
 
