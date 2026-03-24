@@ -26,6 +26,8 @@ class RoiSelector:
         self._mode = InteractionMode.VIEW
         self._brush_size = 20
         self._drawing = False
+        self._dragging = False
+        self._drag_offset: Optional[Tuple[int, int]] = None
         self._roi_start: Optional[QPoint] = None
         self._roi_current: Optional[QPoint] = None
 
@@ -78,16 +80,57 @@ class RoiSelector:
         y = int(point.y() * fh / dh)
         return max(0, min(x, fw - 1)), max(0, min(y, fh - 1))
 
+    def _is_inside_roi_display(self, pos: QPoint) -> bool:
+        """Check if a display-space point is inside the current ROI."""
+        if not self._roi or not self._frame_size or not self._display_size:
+            return False
+        fw, fh = self._frame_size
+        dw, dh = self._display_size
+        x, y, w, h = self._roi
+        dx = x * dw / fw
+        dy = y * dh / fh
+        dw_roi = w * dw / fw
+        dh_roi = h * dh / fh
+        return (dx <= pos.x() <= dx + dw_roi and dy <= pos.y() <= dy + dh_roi)
+
     def on_mouse_press(self, pos: QPoint) -> None:
         if self._mode == InteractionMode.ROI:
-            self._roi_start = pos
-            self._roi_current = pos
-            self._drawing = True
+            # If clicking inside existing ROI, start dragging it
+            if self._roi and self._is_inside_roi_display(pos):
+                fx, fy = self._display_to_frame(pos)
+                rx, ry, _, _ = self._roi
+                self._drag_offset = (fx - rx, fy - ry)
+                self._dragging = True
+            else:
+                # Start drawing a new ROI
+                self._roi_start = pos
+                self._roi_current = pos
+                self._drawing = True
         elif self._mode == InteractionMode.MASK:
             self._drawing = True
             self._paint_mask(pos)
+        elif self._mode == InteractionMode.VIEW and self._roi:
+            # Allow dragging ROI even in view mode
+            if self._is_inside_roi_display(pos):
+                fx, fy = self._display_to_frame(pos)
+                rx, ry, _, _ = self._roi
+                self._drag_offset = (fx - rx, fy - ry)
+                self._dragging = True
 
     def on_mouse_move(self, pos: QPoint) -> None:
+        if self._dragging and self._roi and self._drag_offset:
+            fx, fy = self._display_to_frame(pos)
+            ox, oy = self._drag_offset
+            x, y, w, h = self._roi
+            new_x = fx - ox
+            new_y = fy - oy
+            # Clamp to frame bounds
+            if self._frame_size:
+                fw, fh = self._frame_size
+                new_x = max(0, min(new_x, fw - w))
+                new_y = max(0, min(new_y, fh - h))
+            self._roi = (new_x, new_y, w, h)
+            return
         if not self._drawing:
             return
         if self._mode == InteractionMode.ROI:
@@ -96,6 +139,10 @@ class RoiSelector:
             self._paint_mask(pos)
 
     def on_mouse_release(self, pos: QPoint) -> None:
+        if self._dragging:
+            self._dragging = False
+            self._drag_offset = None
+            return
         if self._mode == InteractionMode.ROI and self._roi_start:
             x1, y1 = self._display_to_frame(self._roi_start)
             x2, y2 = self._display_to_frame(pos)

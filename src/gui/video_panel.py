@@ -152,10 +152,12 @@ class VideoPanel(QWidget):
                 return True
             elif event.type() == QEvent.Type.MouseMove:
                 self._selector.on_mouse_move(event.pos())
-                if self._selector.mode != InteractionMode.VIEW:
+                if (self._selector.mode != InteractionMode.VIEW
+                        or self._selector._dragging):
                     self._refresh_display()
                 return True
             elif event.type() == QEvent.Type.MouseButtonRelease:
+                was_dragging = self._selector._dragging
                 self._selector.on_mouse_release(event.pos())
                 if self._selector.roi:
                     self.roi_selected.emit(self._selector.roi)
