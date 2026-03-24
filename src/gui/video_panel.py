@@ -183,7 +183,7 @@ class VideoPanel(QWidget):
             else:
                 self._label.setCursor(Qt.CursorShape.CrossCursor)
         elif self._selector.mode == InteractionMode.MASK:
-            self._label.setCursor(Qt.CursorShape.CrossCursor)
+            self._label.setCursor(Qt.CursorShape.ArrowCursor)
         elif self._selector.mode == InteractionMode.VIEW:
             if self._selector.roi and self._selector._is_inside_roi_display(pos):
                 self._label.setCursor(Qt.CursorShape.OpenHandCursor)

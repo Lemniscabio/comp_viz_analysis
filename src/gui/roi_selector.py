@@ -197,12 +197,15 @@ class RoiSelector:
             self._roi = (new_x, new_y, w, h)
             return
 
+        # Mask mode: paint on hover, no click needed
+        if self._mode == InteractionMode.MASK:
+            self._paint_mask(pos)
+            return
+
         if not self._drawing:
             return
         if self._mode == InteractionMode.ROI:
             self._roi_current = pos
-        elif self._mode == InteractionMode.MASK:
-            self._paint_mask(pos)
 
     def on_mouse_release(self, pos: QPoint) -> None:
         if self._resizing:
