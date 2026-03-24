@@ -115,6 +115,8 @@ class MainWindow(QMainWindow):
         ctrl.mask_mode_requested.connect(
             lambda: self._video_panel.set_mode(InteractionMode.MASK)
         )
+        ctrl.clear_roi_requested.connect(self._on_clear_roi)
+        ctrl.clear_mask_requested.connect(self._on_clear_mask)
         self._video_panel.roi_selected.connect(self._on_roi_selected)
         self._video_panel.reference_frame_requested.connect(self._on_set_reference)
 
@@ -144,9 +146,24 @@ class MainWindow(QMainWindow):
         self._set_state(AppState.READY)
 
     def _on_roi_selected(self, roi: tuple) -> None:
-        self._status.showMessage(f"ROI selected: {roi}")
+        x, y, w, h = roi
+        self._status.showMessage(
+            f"ROI selected: {w}x{h} pixels at ({x}, {y}) -- Click 'Start Analysis' to begin"
+        )
         self._video_panel.set_mode(InteractionMode.VIEW)
+        self._controls.deactivate_tools()
         self._set_state(AppState.CONFIGURED)
+
+    def _on_clear_roi(self) -> None:
+        self._video_panel.selector.clear_roi()
+        self._video_panel._refresh_display()
+        self._status.showMessage("ROI cleared -- full frame will be analyzed")
+        self._set_state(AppState.READY)
+
+    def _on_clear_mask(self) -> None:
+        self._video_panel.selector.clear_mask()
+        self._video_panel._refresh_display()
+        self._status.showMessage("Exclusion areas cleared")
 
     def _on_set_reference(self) -> None:
         self._reference_frame_num = self._current_frame_num
@@ -213,13 +230,14 @@ class MainWindow(QMainWindow):
         )
 
     def _on_progress(self, current: int, total: int) -> None:
+        self._controls.update_progress(current, total)
         if total > 0:
             pct = current / total * 100
             self._status.showMessage(
-                f"Processing: {current}/{total} ({pct:.0f}%)"
+                f"Analyzing: {current}/{total} frames ({pct:.0f}%)"
             )
         else:
-            self._status.showMessage(f"Processing: {current} frames (live)")
+            self._status.showMessage(f"Analyzing: {current} frames (live)")
 
     def _on_analysis_finished(self) -> None:
         self._set_state(AppState.CONFIGURED)
