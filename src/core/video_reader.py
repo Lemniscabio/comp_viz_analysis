@@ -100,7 +100,8 @@ class VideoReader:
 
     def release(self) -> None:
         """Release the video capture resource."""
-        self._cap.release()
+        if hasattr(self, "_cap") and self._cap is not None:
+            self._cap.release()
 
     def __del__(self) -> None:
         self.release()

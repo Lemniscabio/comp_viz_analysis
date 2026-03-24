@@ -161,8 +161,8 @@ class AnalysisEngine:
             f"Frame {frame_number}: Variance computed in {time.perf_counter() - t_var:.4f}s"
         )
 
-        # Assemble result row
-        row: Dict[str, Any] = {
+        # Assemble stored row (no large arrays — saved in time series)
+        stored_row: Dict[str, Any] = {
             "frame_number": frame_number,
             "timestamp": timestamp,
             "grand_delta_e": de_result["grand_delta_e"],
@@ -171,10 +171,16 @@ class AnalysisEngine:
             "homogeneity": self._last_glcm_results["homogeneity"],
             "energy": self._last_glcm_results["energy"],
         }
-        row.update(var_result)
-        self._results.append(row)
+        stored_row.update(var_result)
+        self._results.append(stored_row)
+
+        # Return full result including transient data for GUI
+        full_row = dict(stored_row)
+        full_row["pixel_delta_e"] = de_result["pixel_delta_e"]
+        full_row["row_avg"] = de_result["row_avg"]
+        full_row["col_avg"] = de_result["col_avg"]
         self._analyzed_frame_count += 1
 
         t_total = time.perf_counter() - t_start
         logger.debug(f"Frame {frame_number}: Total processing time {t_total:.4f}s")
-        return row
+        return full_row
