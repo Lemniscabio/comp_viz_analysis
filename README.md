@@ -14,7 +14,7 @@ Based on: *"Computer Vision for Kinetic Analysis of Lab- and Process-Scale Mixin
 
 ```bash
 # Clone the repository
-git clone <repo-url>
+git clone https://github.com/Lemniscabio/comp_viz_analysis.git
 cd comp_viz_analysis
 
 # Create a conda environment (recommended)
@@ -27,7 +27,7 @@ pip install -r requirements.txt
 
 ### Requirements
 
-- Python 3.9+
+- Python 3.10+ (3.12 recommended)
 - OpenCV, NumPy, SciPy, scikit-image
 - PyQt6, pyqtgraph (for GUI)
 - PyYAML, openpyxl (for config and export)
