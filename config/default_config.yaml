@@ -1,0 +1,24 @@
+# Frame processing
+frame_skip: 1                    # Analyze every Nth frame (1 = every frame)
+glcm_frame_skip: 1              # GLCM-specific frame skip (can be higher than frame_skip)
+
+# Grid
+grid_rows: 5                    # Number of rows in spatial grid
+grid_cols: 5                    # Number of columns in spatial grid
+
+# GLCM
+glcm_gray_levels: 16            # Number of quantized gray levels (fewer = faster)
+glcm_offset: [1, 1]             # Pixel pair offset [dx, dy]
+
+# Contact
+contact_threshold: 128          # Grayscale threshold for binary contact analysis (0-255)
+
+# Video / Camera
+camera_index: 0                 # Default camera device index for live feed
+video_fps_override: null        # Override video FPS if metadata is wrong
+
+# Brightness warning
+brightness_change_threshold: 0.2  # Warn if brightness changes by more than 20%
+
+# Export
+export_format: "csv"            # csv or xlsx
