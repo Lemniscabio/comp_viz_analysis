@@ -8,8 +8,8 @@ import numpy as np
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import (
-    QDockWidget, QFileDialog, QMainWindow, QMessageBox, QSplitter,
-    QStatusBar, QVBoxLayout, QWidget,
+    QDockWidget, QFileDialog, QMainWindow, QMessageBox, QPushButton,
+    QSplitter, QStatusBar, QVBoxLayout, QWidget,
 )
 
 from src.core.export import DataExporter
@@ -63,10 +63,29 @@ class MainWindow(QMainWindow):
         )
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self._controls_dock)
 
+        # Toolbar with sidebar toggle
+        toolbar = self.addToolBar("Main")
+        toolbar.setMovable(False)
+        self._btn_sidebar = QPushButton("Toggle Video")
+        self._btn_sidebar.setCheckable(True)
+        self._btn_sidebar.setChecked(True)
+        self._btn_sidebar.setToolTip("Show/hide the video panel")
+        self._btn_sidebar.setFixedSize(100, 28)
+        self._btn_sidebar.clicked.connect(self._toggle_video_panel)
+        # Sync state when dock is closed via its own X button
+        self._video_dock.visibilityChanged.connect(
+            lambda visible: self._btn_sidebar.setChecked(visible)
+        )
+        toolbar.addWidget(self._btn_sidebar)
+
         # Status bar
         self._status = QStatusBar()
         self.setStatusBar(self._status)
         self._status.showMessage("Open a video file to begin")
+
+    def _toggle_video_panel(self) -> None:
+        visible = self._btn_sidebar.isChecked()
+        self._video_dock.setVisible(visible)
 
     def _setup_menu(self) -> None:
         menubar = self.menuBar()
