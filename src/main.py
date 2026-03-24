@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -61,11 +62,31 @@ def main(argv: Optional[List[str]] = None) -> None:
         engine.set_reference_frame_data(ref)
         logger.info(f"Using frame {args.reference_frame} as reference")
 
-    logger.info("Starting analysis...")
+    total_frames = reader.frame_count
+    frame_skip = config["frame_skip"]
+    expected_frames = total_frames // frame_skip
+    log_interval = max(1, expected_frames // 20)  # ~5% increments
+
+    logger.info(f"Starting analysis ({total_frames} frames, skip={frame_skip})...")
+    t_start = time.perf_counter()
+    processed = 0
+
     for frame_number, frame in reader:
         timestamp = reader.timestamp(frame_number)
         engine.process_frame(frame, frame_number, timestamp, roi=roi)
+        processed += 1
 
+        if processed % log_interval == 0 or processed == 1:
+            pct = processed / expected_frames * 100 if expected_frames > 0 else 0
+            elapsed = time.perf_counter() - t_start
+            fps = processed / elapsed if elapsed > 0 else 0
+            eta = (expected_frames - processed) / fps if fps > 0 else 0
+            logger.info(
+                f"Progress: {processed}/{expected_frames} frames "
+                f"({pct:.0f}%) | {fps:.1f} frames/sec | ETA: {eta:.0f}s"
+            )
+
+    elapsed_total = time.perf_counter() - t_start
     reader.release()
 
     # Export
@@ -78,7 +99,10 @@ def main(argv: Optional[List[str]] = None) -> None:
 
     exporter = DataExporter()
     exporter.export(engine.results, output_path, fmt=fmt)
-    logger.info(f"Analysis complete. {len(engine.results)} frames processed.")
+    logger.info(
+        f"Analysis complete. {len(engine.results)} frames processed "
+        f"in {elapsed_total:.1f}s ({len(engine.results)/elapsed_total:.1f} frames/sec)."
+    )
 
 
 if __name__ == "__main__":
