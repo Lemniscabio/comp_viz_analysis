@@ -25,7 +25,6 @@ class RoiSelector:
         self._display_size: Optional[Tuple[int, int]] = None
         self._mode = InteractionMode.VIEW
         self._brush_size = 20
-        self._erasing = False  # right-click erases mask
         self._drawing = False
         self._dragging = False
         self._resizing = False
@@ -125,11 +124,10 @@ class RoiSelector:
         dh_roi = h * dh / fh
         return (dx <= pos.x() <= dx + dw_roi and dy <= pos.y() <= dy + dh_roi)
 
-    def on_mouse_press(self, pos: QPoint, right_button: bool = False) -> None:
+    def on_mouse_press(self, pos: QPoint) -> None:
         if self._mode == InteractionMode.MASK:
-            self._erasing = right_button
             self._drawing = True
-            self._paint_mask(pos, erase=right_button)
+            self._paint_mask(pos)
             return
 
         # Check for resize handle first (ROI or VIEW mode)
@@ -199,9 +197,9 @@ class RoiSelector:
             self._roi = (new_x, new_y, w, h)
             return
 
-        # Mask mode: paint on hover (left) or erase on hover (right-held)
+        # Mask mode: paint on hover, no click needed
         if self._mode == InteractionMode.MASK:
-            self._paint_mask(pos, erase=self._erasing)
+            self._paint_mask(pos)
             return
 
         if not self._drawing:
@@ -210,7 +208,6 @@ class RoiSelector:
             self._roi_current = pos
 
     def on_mouse_release(self, pos: QPoint) -> None:
-        self._erasing = False
         if self._resizing:
             self._resizing = False
             self._resize_handle = None
@@ -235,13 +232,8 @@ class RoiSelector:
         if self._mode == InteractionMode.MASK:
             self._brush_size = max(5, min(100, self._brush_size + (delta // 120) * 5))
 
-    def _paint_mask(self, pos: QPoint, erase: bool = False) -> None:
-        """Paint or erase on the mask using NumPy vectorized circular brush.
-
-        Args:
-            pos: Display-space position.
-            erase: If True, restore pixels (set to 1). If False, exclude pixels (set to 0).
-        """
+    def _paint_mask(self, pos: QPoint) -> None:
+        """Paint exclusion area on the mask using NumPy vectorized circular brush."""
         if self._mask is None or not self._frame_size:
             return
         fx, fy = self._display_to_frame(pos)
@@ -260,7 +252,7 @@ class RoiSelector:
         if y_max > y_min and x_max > x_min:
             yy, xx = np.ogrid[y_min:y_max, x_min:x_max]
             circle = (xx - fx) ** 2 + (yy - fy) ** 2 <= radius ** 2
-            self._mask[y_min:y_max, x_min:x_max][circle] = 1 if erase else 0
+            self._mask[y_min:y_max, x_min:x_max][circle] = 0
 
     def draw_roi_overlay(self, painter: QPainter) -> None:
         """Draw ROI rectangle with corner/edge resize handles."""

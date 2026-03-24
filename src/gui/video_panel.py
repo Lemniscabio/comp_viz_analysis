@@ -201,12 +201,11 @@ class VideoPanel(QWidget):
             return super().eventFilter(obj, event)
         if obj is self._label:
             if event.type() == QEvent.Type.MouseButtonPress:
-                is_right = event.button() == Qt.MouseButton.RightButton
-                if is_right and self._selector.mode != InteractionMode.MASK:
+                if event.button() == Qt.MouseButton.RightButton:
                     self.reference_frame_requested.emit()
                     return True
                 ppos = self._label_to_pixmap_pos(event.pos())
-                self._selector.on_mouse_press(ppos, right_button=is_right)
+                self._selector.on_mouse_press(ppos)
                 self._update_cursor(ppos)
                 return True
             elif event.type() == QEvent.Type.MouseMove:
