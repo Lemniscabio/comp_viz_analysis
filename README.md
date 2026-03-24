@@ -230,9 +230,3 @@ pytest tests/ -v
 ## Cross-Platform
 
 Built with PyQt6 (Qt framework). Runs on macOS, Windows, and Linux without code changes.
-
----
-
-## License
-
-[Add your license here]
