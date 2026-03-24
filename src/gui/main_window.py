@@ -115,15 +115,6 @@ class MainWindow(QMainWindow):
 
         view_menu.addSeparator()
 
-        grid_toggle = QAction("Toggle Grid Overlay", self)
-        grid_toggle.setCheckable(True)
-        grid_toggle.triggered.connect(self._video_panel.set_grid_visible)
-        view_menu.addAction(grid_toggle)
-
-        heatmap_toggle = QAction("Toggle Heatmap Overlay", self)
-        heatmap_toggle.setCheckable(True)
-        heatmap_toggle.triggered.connect(self._video_panel.set_heatmap_visible)
-        view_menu.addAction(heatmap_toggle)
 
         # Help menu
         help_menu = menubar.addMenu("Help")
@@ -159,6 +150,8 @@ class MainWindow(QMainWindow):
         ctrl.view_mode_requested.connect(
             lambda: self._video_panel.set_mode(InteractionMode.VIEW)
         )
+        ctrl.grid_toggled.connect(self._video_panel.set_grid_visible)
+        ctrl.heatmap_toggled.connect(self._video_panel.set_heatmap_visible)
         ctrl.clear_roi_requested.connect(self._on_clear_roi)
         ctrl.clear_mask_requested.connect(self._on_clear_mask)
         self._video_panel.roi_selected.connect(self._on_roi_selected)

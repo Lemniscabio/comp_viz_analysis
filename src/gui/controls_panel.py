@@ -29,6 +29,8 @@ class ControlsPanel(QWidget):
     roi_mode_requested = pyqtSignal()
     mask_mode_requested = pyqtSignal()
     erase_mode_requested = pyqtSignal()
+    grid_toggled = pyqtSignal(bool)
+    heatmap_toggled = pyqtSignal(bool)
     clear_roi_requested = pyqtSignal()
     clear_mask_requested = pyqtSignal()
     view_mode_requested = pyqtSignal()
@@ -76,6 +78,22 @@ class ControlsPanel(QWidget):
         row1.addWidget(self._btn_roi)
         row1.addWidget(self._btn_mask)
         row1.addWidget(self._btn_erase)
+        row1.addSpacing(16)
+
+        self._btn_grid = QPushButton("Grid")
+        self._btn_grid.setToolTip("Show/hide the analysis grid overlay on the video")
+        self._btn_grid.setCheckable(True)
+
+        self._btn_heatmap = QPushButton("Heatmap")
+        self._btn_heatmap.setToolTip(
+            "Show/hide the Delta-E heatmap overlay.\n"
+            "Blue = little change from reference frame.\n"
+            "Red = large color change (mixing happened here)."
+        )
+        self._btn_heatmap.setCheckable(True)
+
+        row1.addWidget(self._btn_grid)
+        row1.addWidget(self._btn_heatmap)
         row1.addSpacing(16)
 
         self._btn_start = QPushButton("Start Analysis")
@@ -184,6 +202,8 @@ class ControlsPanel(QWidget):
         self._btn_roi.clicked.connect(self._on_roi_toggle)
         self._btn_mask.clicked.connect(self._on_mask_toggle)
         self._btn_erase.clicked.connect(self._on_erase_toggle)
+        self._btn_grid.clicked.connect(lambda checked: self.grid_toggled.emit(checked))
+        self._btn_heatmap.clicked.connect(lambda checked: self.heatmap_toggled.emit(checked))
         self._btn_start.clicked.connect(lambda: self.start_requested.emit())
         self._btn_stop.clicked.connect(lambda: self.stop_requested.emit())
         self._btn_export.clicked.connect(lambda: self.export_requested.emit())
