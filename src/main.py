@@ -77,7 +77,7 @@ def main(argv: Optional[List[str]] = None) -> None:
     total_frames = reader.frame_count
     frame_skip = config["frame_skip"]
     expected_frames = total_frames // frame_skip
-    log_interval = max(1, expected_frames // 20)  # ~5% increments
+    bar_width = 30
 
     logger.info(f"Starting analysis ({total_frames} frames, skip={frame_skip})...")
     t_start = time.perf_counter()
@@ -88,15 +88,21 @@ def main(argv: Optional[List[str]] = None) -> None:
         engine.process_frame(frame, frame_number, timestamp, roi=roi)
         processed += 1
 
-        if processed % log_interval == 0 or processed == 1:
-            pct = processed / expected_frames * 100 if expected_frames > 0 else 0
-            elapsed = time.perf_counter() - t_start
-            fps = processed / elapsed if elapsed > 0 else 0
+        elapsed = time.perf_counter() - t_start
+        fps = processed / elapsed if elapsed > 0 else 0
+        if expected_frames > 0:
+            pct = processed / expected_frames
             eta = (expected_frames - processed) / fps if fps > 0 else 0
-            logger.info(
-                f"Progress: {processed}/{expected_frames} frames "
-                f"({pct:.0f}%) | {fps:.1f} frames/sec | ETA: {eta:.0f}s"
+            filled = int(bar_width * pct)
+            bar = "=" * filled + ">" + " " * (bar_width - filled - 1)
+            sys.stdout.write(
+                f"\r  [{bar}] {pct:.0%}  {processed}/{expected_frames} frames  "
+                f"{fps:.1f} fps  ETA: {eta:.0f}s   "
             )
+            sys.stdout.flush()
+
+    sys.stdout.write("\r" + " " * 80 + "\r")  # clear the progress line
+    sys.stdout.flush()
 
     elapsed_total = time.perf_counter() - t_start
     reader.release()
