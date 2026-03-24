@@ -224,12 +224,27 @@ class MainWindow(QMainWindow):
             self._on_video_selected(path)
 
     def _on_start(self) -> None:
+        # If restarting, reset to initial state first (don't auto-run)
+        if self._controls._has_run:
+            self._plots_panel.clear_data()
+            self._controls.reset_for_new_video()
+            # Show first frame again
+            if self._video_path:
+                import cv2
+                cap = cv2.VideoCapture(self._video_path)
+                ret, frame = cap.read()
+                if ret:
+                    self._video_panel.update_frame(frame)
+                cap.release()
+            self._set_state(AppState.READY if self._video_path else AppState.IDLE)
+            self._status.showMessage("Reset. Adjust settings and click 'Start Analysis'")
+            return
+
         config = self._controls.get_config()
         grid_size = config["grid_rows"]
         self._video_panel.set_grid_size(grid_size, grid_size)
         self._plots_panel.clear_data()
 
-        # Allow start without explicit ROI (uses full frame)
         roi = self._video_panel.selector.roi
         mask = self._video_panel.selector.mask
 
