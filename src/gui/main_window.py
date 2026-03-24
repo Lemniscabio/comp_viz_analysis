@@ -171,6 +171,8 @@ class MainWindow(QMainWindow):
 
     def _on_video_selected(self, path: str) -> None:
         self._video_path = path
+        self._controls.reset_for_new_video()
+        self._plots_panel.clear_data()
         self._status.showMessage(
             f"Video loaded: {Path(path).name} -- Select ROI or click Start Analysis"
         )
@@ -181,7 +183,6 @@ class MainWindow(QMainWindow):
         ret, frame = cap.read()
         if ret:
             self._video_panel.update_frame(frame)
-            # Make sure video panel is visible
             self._video_dock.setVisible(True)
         cap.release()
 
@@ -248,6 +249,7 @@ class MainWindow(QMainWindow):
 
         self._worker.start()
         self._video_panel.set_interaction_locked(True)
+        self._controls.mark_analysis_started()
         self._set_state(AppState.RUNNING)
         self._status.showMessage("Analysis running...")
 

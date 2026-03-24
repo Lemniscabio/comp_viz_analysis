@@ -181,7 +181,16 @@ class ControlsPanel(QWidget):
             lambda v: self._lbl_threshold.setText(str(v))
         )
 
+        self._has_run = False
         self.set_state(AppState.IDLE)
+
+    def mark_analysis_started(self) -> None:
+        """Mark that analysis has been run at least once."""
+        self._has_run = True
+
+    def reset_for_new_video(self) -> None:
+        """Reset state when a new video is loaded."""
+        self._has_run = False
 
     def _on_roi_toggle(self) -> None:
         if self._btn_roi.isChecked():
@@ -229,6 +238,19 @@ class ControlsPanel(QWidget):
         self._btn_start.setEnabled(ready or configured)
         self._btn_stop.setEnabled(running or paused)
         self._btn_export.setEnabled(running or paused or configured)
+
+        # Update button labels based on context
+        if not idle:
+            self._btn_upload.setText("Change Video")
+        else:
+            self._btn_upload.setText("Open Video")
+
+        if self._has_run and not running:
+            self._btn_start.setText("Restart Analysis")
+        elif running:
+            self._btn_start.setText("Running...")
+        else:
+            self._btn_start.setText("Start Analysis")
 
         self._progress_bar.setVisible(running)
         if not running:
