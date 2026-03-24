@@ -27,9 +27,12 @@ class RoiSelector:
         self._brush_size = 20
         self._drawing = False
         self._dragging = False
+        self._resizing = False
+        self._resize_handle: Optional[str] = None  # "tl", "tr", "bl", "br", "t", "b", "l", "r"
         self._drag_offset: Optional[Tuple[int, int]] = None
         self._roi_start: Optional[QPoint] = None
         self._roi_current: Optional[QPoint] = None
+        self._handle_size = 12  # pixels in display coords
 
     @property
     def roi(self) -> Optional[Tuple[int, int, int, int]]:
@@ -80,6 +83,56 @@ class RoiSelector:
         y = int(point.y() * fh / dh)
         return max(0, min(x, fw - 1)), max(0, min(y, fh - 1))
 
+    def _get_roi_display_rect(self) -> Optional[Tuple[float, float, float, float]]:
+        """Get ROI rectangle in display coordinates as (dx, dy, dw, dh)."""
+        if not self._roi or not self._frame_size or not self._display_size:
+            return None
+        fw, fh = self._frame_size
+        dw, dh = self._display_size
+        x, y, w, h = self._roi
+        return (x * dw / fw, y * dh / fh, w * dw / fw, h * dh / fh)
+
+    def get_resize_handle(self, pos: QPoint) -> Optional[str]:
+        """Check if pos is near a corner or edge handle. Returns handle id or None."""
+        rect = self._get_roi_display_rect()
+        if not rect:
+            return None
+        dx, dy, dw, dh = rect
+        px, py = pos.x(), pos.y()
+        hs = self._handle_size
+
+        # Corners first (higher priority)
+        if abs(px - dx) < hs and abs(py - dy) < hs:
+            return "tl"
+        if abs(px - (dx + dw)) < hs and abs(py - dy) < hs:
+            return "tr"
+        if abs(px - dx) < hs and abs(py - (dy + dh)) < hs:
+            return "bl"
+        if abs(px - (dx + dw)) < hs and abs(py - (dy + dh)) < hs:
+            return "br"
+        # Edges
+        if abs(py - dy) < hs and dx < px < dx + dw:
+            return "t"
+        if abs(py - (dy + dh)) < hs and dx < px < dx + dw:
+            return "b"
+        if abs(px - dx) < hs and dy < py < dy + dh:
+            return "l"
+        if abs(px - (dx + dw)) < hs and dy < py < dy + dh:
+            return "r"
+        return None
+
+    def get_cursor_for_handle(self, handle: Optional[str]) -> Optional[str]:
+        """Return cursor type string for a given handle."""
+        if handle in ("tl", "br"):
+            return "size_fdiag"
+        if handle in ("tr", "bl"):
+            return "size_bdiag"
+        if handle in ("t", "b"):
+            return "size_ver"
+        if handle in ("l", "r"):
+            return "size_hor"
+        return None
+
     def _is_inside_roi_display(self, pos: QPoint) -> bool:
         """Check if a display-space point is inside the current ROI."""
         if not self._roi or not self._frame_size or not self._display_size:
@@ -94,23 +147,30 @@ class RoiSelector:
         return (dx <= pos.x() <= dx + dw_roi and dy <= pos.y() <= dy + dh_roi)
 
     def on_mouse_press(self, pos: QPoint) -> None:
+        if self._mode == InteractionMode.MASK:
+            self._drawing = True
+            self._paint_mask(pos)
+            return
+
+        # Check for resize handle first (ROI or VIEW mode)
+        if self._roi and self._mode in (InteractionMode.ROI, InteractionMode.VIEW):
+            handle = self.get_resize_handle(pos)
+            if handle:
+                self._resizing = True
+                self._resize_handle = handle
+                return
+
         if self._mode == InteractionMode.ROI:
-            # If clicking inside existing ROI, start dragging it
             if self._roi and self._is_inside_roi_display(pos):
                 fx, fy = self._display_to_frame(pos)
                 rx, ry, _, _ = self._roi
                 self._drag_offset = (fx - rx, fy - ry)
                 self._dragging = True
             else:
-                # Start drawing a new ROI
                 self._roi_start = pos
                 self._roi_current = pos
                 self._drawing = True
-        elif self._mode == InteractionMode.MASK:
-            self._drawing = True
-            self._paint_mask(pos)
         elif self._mode == InteractionMode.VIEW and self._roi:
-            # Allow dragging ROI even in view mode
             if self._is_inside_roi_display(pos):
                 fx, fy = self._display_to_frame(pos)
                 rx, ry, _, _ = self._roi
@@ -118,19 +178,47 @@ class RoiSelector:
                 self._dragging = True
 
     def on_mouse_move(self, pos: QPoint) -> None:
+        if self._resizing and self._roi and self._resize_handle:
+            fx, fy = self._display_to_frame(pos)
+            x, y, w, h = self._roi
+            r, b = x + w, y + h  # right, bottom edges
+
+            if "l" in self._resize_handle:
+                new_x = min(fx, r - 10)
+                w = r - new_x
+                x = new_x
+            if "r" in self._resize_handle:
+                w = max(10, fx - x)
+            if "t" in self._resize_handle:
+                new_y = min(fy, b - 10)
+                h = b - new_y
+                y = new_y
+            if "b" in self._resize_handle:
+                h = max(10, fy - y)
+
+            if self._frame_size:
+                fw, fh = self._frame_size
+                x = max(0, x)
+                y = max(0, y)
+                w = min(w, fw - x)
+                h = min(h, fh - y)
+
+            self._roi = (x, y, w, h)
+            return
+
         if self._dragging and self._roi and self._drag_offset:
             fx, fy = self._display_to_frame(pos)
             ox, oy = self._drag_offset
             x, y, w, h = self._roi
             new_x = fx - ox
             new_y = fy - oy
-            # Clamp to frame bounds
             if self._frame_size:
                 fw, fh = self._frame_size
                 new_x = max(0, min(new_x, fw - w))
                 new_y = max(0, min(new_y, fh - h))
             self._roi = (new_x, new_y, w, h)
             return
+
         if not self._drawing:
             return
         if self._mode == InteractionMode.ROI:
@@ -139,6 +227,10 @@ class RoiSelector:
             self._paint_mask(pos)
 
     def on_mouse_release(self, pos: QPoint) -> None:
+        if self._resizing:
+            self._resizing = False
+            self._resize_handle = None
+            return
         if self._dragging:
             self._dragging = False
             self._drag_offset = None
@@ -182,7 +274,7 @@ class RoiSelector:
             self._mask[y_min:y_max, x_min:x_max][circle] = 0
 
     def draw_roi_overlay(self, painter: QPainter) -> None:
-        """Draw ROI rectangle on the display."""
+        """Draw ROI rectangle with corner/edge resize handles."""
         if self._roi and self._display_size and self._frame_size:
             fw, fh = self._frame_size
             dw, dh = self._display_size
@@ -191,9 +283,29 @@ class RoiSelector:
             dy = int(y * dh / fh)
             dw_roi = int(w * dw / fw)
             dh_roi = int(h * dh / fh)
+
+            # Draw rectangle
             pen = QPen(QColor(0, 255, 0), 2, Qt.PenStyle.DashLine)
             painter.setPen(pen)
             painter.drawRect(dx, dy, dw_roi, dh_roi)
+
+            # Draw resize handles at corners and edge midpoints
+            hs = 6  # half handle size
+            handle_pen = QPen(QColor(255, 255, 255), 1)
+            painter.setPen(handle_pen)
+            painter.setBrush(QColor(0, 255, 0))
+            handle_points = [
+                (dx, dy),                               # top-left
+                (dx + dw_roi, dy),                      # top-right
+                (dx, dy + dh_roi),                      # bottom-left
+                (dx + dw_roi, dy + dh_roi),             # bottom-right
+                (dx + dw_roi // 2, dy),                 # top-mid
+                (dx + dw_roi // 2, dy + dh_roi),        # bottom-mid
+                (dx, dy + dh_roi // 2),                 # left-mid
+                (dx + dw_roi, dy + dh_roi // 2),        # right-mid
+            ]
+            for hx, hy in handle_points:
+                painter.drawRect(hx - hs, hy - hs, hs * 2, hs * 2)
         elif (self._drawing and self._mode == InteractionMode.ROI
               and self._roi_start and self._roi_current):
             pen = QPen(QColor(0, 255, 0), 2, Qt.PenStyle.DashLine)

@@ -142,11 +142,34 @@ class VideoPanel(QWidget):
             x = int(c * cell_w)
             painter.drawLine(x, 0, x, ph)
 
+    _HANDLE_CURSORS = {
+        "tl": Qt.CursorShape.SizeFDiagCursor,
+        "br": Qt.CursorShape.SizeFDiagCursor,
+        "tr": Qt.CursorShape.SizeBDiagCursor,
+        "bl": Qt.CursorShape.SizeBDiagCursor,
+        "t": Qt.CursorShape.SizeVerCursor,
+        "b": Qt.CursorShape.SizeVerCursor,
+        "l": Qt.CursorShape.SizeHorCursor,
+        "r": Qt.CursorShape.SizeHorCursor,
+    }
+
     def _update_cursor(self, pos) -> None:
         """Update cursor based on position and mode."""
+        if self._selector._resizing:
+            handle = self._selector._resize_handle
+            self._label.setCursor(self._HANDLE_CURSORS.get(handle, Qt.CursorShape.ArrowCursor))
+            return
         if self._selector._dragging:
             self._label.setCursor(Qt.CursorShape.ClosedHandCursor)
-        elif self._selector.mode == InteractionMode.ROI:
+            return
+
+        # Check resize handles first
+        handle = self._selector.get_resize_handle(pos)
+        if handle and self._selector.mode in (InteractionMode.ROI, InteractionMode.VIEW):
+            self._label.setCursor(self._HANDLE_CURSORS[handle])
+            return
+
+        if self._selector.mode == InteractionMode.ROI:
             if self._selector._is_inside_roi_display(pos):
                 self._label.setCursor(Qt.CursorShape.OpenHandCursor)
             else:
@@ -172,7 +195,8 @@ class VideoPanel(QWidget):
                 self._selector.on_mouse_move(event.pos())
                 self._update_cursor(event.pos())
                 if (self._selector.mode != InteractionMode.VIEW
-                        or self._selector._dragging):
+                        or self._selector._dragging
+                        or self._selector._resizing):
                     self._refresh_display()
                 return True
             elif event.type() == QEvent.Type.MouseButtonRelease:
