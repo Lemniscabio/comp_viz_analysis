@@ -142,6 +142,23 @@ class VideoPanel(QWidget):
             x = int(c * cell_w)
             painter.drawLine(x, 0, x, ph)
 
+    def _update_cursor(self, pos) -> None:
+        """Update cursor based on position and mode."""
+        if self._selector._dragging:
+            self._label.setCursor(Qt.CursorShape.ClosedHandCursor)
+        elif self._selector.mode == InteractionMode.ROI:
+            if self._selector._is_inside_roi_display(pos):
+                self._label.setCursor(Qt.CursorShape.OpenHandCursor)
+            else:
+                self._label.setCursor(Qt.CursorShape.CrossCursor)
+        elif self._selector.mode == InteractionMode.MASK:
+            self._label.setCursor(Qt.CursorShape.CrossCursor)
+        elif self._selector.mode == InteractionMode.VIEW:
+            if self._selector.roi and self._selector._is_inside_roi_display(pos):
+                self._label.setCursor(Qt.CursorShape.OpenHandCursor)
+            else:
+                self._label.setCursor(Qt.CursorShape.ArrowCursor)
+
     def eventFilter(self, obj, event) -> bool:
         if obj is self._label:
             if event.type() == QEvent.Type.MouseButtonPress:
@@ -149,16 +166,18 @@ class VideoPanel(QWidget):
                     self.reference_frame_requested.emit()
                     return True
                 self._selector.on_mouse_press(event.pos())
+                self._update_cursor(event.pos())
                 return True
             elif event.type() == QEvent.Type.MouseMove:
                 self._selector.on_mouse_move(event.pos())
+                self._update_cursor(event.pos())
                 if (self._selector.mode != InteractionMode.VIEW
                         or self._selector._dragging):
                     self._refresh_display()
                 return True
             elif event.type() == QEvent.Type.MouseButtonRelease:
-                was_dragging = self._selector._dragging
                 self._selector.on_mouse_release(event.pos())
+                self._update_cursor(event.pos())
                 if self._selector.roi:
                     self.roi_selected.emit(self._selector.roi)
                 self._refresh_display()

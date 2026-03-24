@@ -48,9 +48,9 @@ class MainWindow(QMainWindow):
         self._video_dock = QDockWidget("Video", self)
         self._video_dock.setWidget(self._video_panel)
         self._video_dock.setFeatures(
-            QDockWidget.DockWidgetFeature.DockWidgetClosable
-            | QDockWidget.DockWidgetFeature.DockWidgetMovable
+            QDockWidget.DockWidgetFeature.DockWidgetMovable
         )
+        self._video_dock.setTitleBarWidget(QWidget())  # hide title bar
         self._video_dock.setMinimumWidth(300)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self._video_dock)
 
