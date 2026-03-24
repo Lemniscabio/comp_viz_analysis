@@ -18,7 +18,7 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Kineticolor: Computer vision mixing analysis"
     )
-    parser.add_argument("--video", type=str, required=True, help="Path to video file")
+    parser.add_argument("--video", type=str, default=None, help="Path to video file (omit for GUI mode)")
     parser.add_argument("--roi", type=str, default=None, help="ROI as x,y,w,h (default: full frame)")
     parser.add_argument("--config", type=str, default="config/default_config.yaml", help="Path to config YAML")
     parser.add_argument("--output", type=str, default="results.csv", help="Output file path")
@@ -28,6 +28,18 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
 
 def main(argv: Optional[List[str]] = None) -> None:
     args = parse_args(argv)
+
+    # GUI mode: launch when no --video provided
+    if not args.video:
+        from PyQt6.QtWidgets import QApplication
+        from src.gui.main_window import MainWindow
+
+        app = QApplication(sys.argv)
+        window = MainWindow()
+        window.show()
+        sys.exit(app.exec())
+
+    # CLI mode
     logger = setup_logger()
 
     config_path = Path(args.config)
