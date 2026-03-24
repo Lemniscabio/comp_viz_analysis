@@ -247,6 +247,7 @@ class MainWindow(QMainWindow):
         self._worker.brightness_warning.connect(self._on_brightness_warning)
 
         self._worker.start()
+        self._video_panel.set_interaction_locked(True)
         self._set_state(AppState.RUNNING)
         self._status.showMessage("Analysis running...")
 
@@ -254,6 +255,7 @@ class MainWindow(QMainWindow):
         if self._worker:
             self._worker.stop()
             self._worker.wait(5000)
+        self._video_panel.set_interaction_locked(False)
         self._set_state(AppState.CONFIGURED)
         self._status.showMessage("Analysis stopped")
 
@@ -286,6 +288,7 @@ class MainWindow(QMainWindow):
             self._status.showMessage(f"Analyzing: {current} frames")
 
     def _on_analysis_finished(self) -> None:
+        self._video_panel.set_interaction_locked(False)
         self._set_state(AppState.CONFIGURED)
         count = 0
         if self._worker and self._worker.engine:

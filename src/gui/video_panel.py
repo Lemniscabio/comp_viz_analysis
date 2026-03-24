@@ -31,6 +31,7 @@ class VideoPanel(QWidget):
         layout.addWidget(self._label)
 
         self._selector = RoiSelector()
+        self._interaction_locked = False
         self._pixmap_offset_x = 0
         self._pixmap_offset_y = 0
         self._current_frame: Optional[np.ndarray] = None
@@ -189,7 +190,15 @@ class VideoPanel(QWidget):
             else:
                 self._label.setCursor(Qt.CursorShape.ArrowCursor)
 
+    def set_interaction_locked(self, locked: bool) -> None:
+        """Lock/unlock mouse interaction (disable during analysis)."""
+        self._interaction_locked = locked
+        if locked:
+            self._label.setCursor(Qt.CursorShape.ArrowCursor)
+
     def eventFilter(self, obj, event) -> bool:
+        if self._interaction_locked:
+            return super().eventFilter(obj, event)
         if obj is self._label:
             if event.type() == QEvent.Type.MouseButtonPress:
                 if event.button() == Qt.MouseButton.RightButton:
