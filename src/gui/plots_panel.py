@@ -60,6 +60,13 @@ class PlotsPanel(QWidget):
         grid.addWidget(self._plot_contact, 2, 0)
         grid.addWidget(self._plot_variance, 2, 1)
 
+        self._plot_de.setLabel("left", "Delta-E (perceptual units)")
+        self._plot_contrast.setLabel("left", "Contrast (a.u.)")
+        self._plot_energy.setLabel("left", "Energy (0-1)")
+        self._plot_homogeneity.setLabel("left", "Homogeneity (0-1)")
+        self._plot_contact.setLabel("left", "Contact (edge count)")
+        self._plot_variance.setLabel("left", "Variance (a.u.)")
+
         for plot in [
             self._plot_de,
             self._plot_contrast,
