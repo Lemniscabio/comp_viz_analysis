@@ -326,6 +326,10 @@ class VideoPanel(QWidget):
                 self._refresh_display()
                 return True
             elif event.type() == QEvent.Type.Wheel:
-                self._selector.on_wheel(event.angleDelta().y())
-                return True
+                if self._selector.mode == InteractionMode.MASK:
+                    # Scroll changes brush size in mask mode
+                    self._selector.on_wheel(event.angleDelta().y())
+                    return True
+                # Otherwise let scroll area handle it for panning
+                return False
         return super().eventFilter(obj, event)
