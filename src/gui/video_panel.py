@@ -7,7 +7,9 @@ import cv2
 import numpy as np
 from PyQt6.QtCore import Qt, pyqtSignal, QEvent
 from PyQt6.QtGui import QColor, QImage, QPainter, QPen, QPixmap
-from PyQt6.QtWidgets import QLabel, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import (
+    QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget,
+)
 
 from src.gui.heatmap_overlay import create_heatmap_overlay
 from src.gui.roi_selector import InteractionMode, RoiSelector
@@ -28,12 +30,36 @@ class VideoPanel(QWidget):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self._label)
+        layout.addWidget(self._label, stretch=1)
+
+        # Info panel below video
+        self._info_label = QLabel("")
+        self._info_label.setStyleSheet(
+            "color: #cccccc; background-color: #2a2a3e; padding: 6px; font-size: 11px;"
+        )
+        self._info_label.setWordWrap(True)
+        layout.addWidget(self._info_label)
+
+        # Zoom controls
+        zoom_row = QHBoxLayout()
+        self._btn_zoom_in = QPushButton("+")
+        self._btn_zoom_out = QPushButton("-")
+        self._btn_zoom_fit = QPushButton("Fit")
+        for btn in [self._btn_zoom_in, self._btn_zoom_out, self._btn_zoom_fit]:
+            btn.setFixedSize(36, 24)
+            btn.setToolTip("Zoom in / out / fit to panel")
+            zoom_row.addWidget(btn)
+        self._zoom_label = QLabel("100%")
+        self._zoom_label.setStyleSheet("color: #aaaaaa; font-size: 11px;")
+        zoom_row.addWidget(self._zoom_label)
+        zoom_row.addStretch()
+        layout.addLayout(zoom_row)
 
         self._selector = RoiSelector()
         self._interaction_locked = False
         self._pixmap_offset_x = 0
         self._pixmap_offset_y = 0
+        self._zoom_factor = 1.0
         self._current_frame: Optional[np.ndarray] = None
         self._pixel_delta_e: Optional[np.ndarray] = None
         self._show_grid = False
@@ -44,6 +70,10 @@ class VideoPanel(QWidget):
 
         self._label.setMouseTracking(True)
         self._label.installEventFilter(self)
+
+        self._btn_zoom_in.clicked.connect(lambda: self._set_zoom(self._zoom_factor * 1.25))
+        self._btn_zoom_out.clicked.connect(lambda: self._set_zoom(self._zoom_factor / 1.25))
+        self._btn_zoom_fit.clicked.connect(lambda: self._set_zoom(1.0))
 
     @property
     def selector(self) -> RoiSelector:
@@ -67,6 +97,43 @@ class VideoPanel(QWidget):
     def set_valid_cells(self, valid: List[bool]) -> None:
         self._valid_cells = valid
 
+    def _set_zoom(self, factor: float) -> None:
+        self._zoom_factor = max(0.25, min(4.0, factor))
+        self._zoom_label.setText(f"{self._zoom_factor:.0%}")
+        self._refresh_display()
+
+    def _update_info(self) -> None:
+        """Update the info panel with current state."""
+        lines = []
+        if self._current_frame is not None:
+            h, w = self._current_frame.shape[:2]
+            lines.append(f"Video: {w} x {h} px")
+
+        roi = self._selector.roi
+        if roi:
+            x, y, rw, rh = roi
+            lines.append(f"ROI: {rw} x {rh} px at ({x}, {y})")
+            roi_pixels = rw * rh
+            lines.append(f"ROI pixels: {roi_pixels:,}")
+        else:
+            if self._current_frame is not None:
+                h, w = self._current_frame.shape[:2]
+                lines.append(f"ROI: Full frame ({w * h:,} px)")
+
+        raw_mask = self._selector._mask
+        if raw_mask is not None and roi:
+            x, y, rw, rh = roi
+            roi_mask = raw_mask[y:y+rh, x:x+rw]
+            masked_count = int(np.sum(roi_mask == 0))
+            total = roi_mask.size
+            if masked_count > 0:
+                pct = masked_count / total * 100
+                lines.append(f"Masked: {masked_count:,} / {total:,} px ({pct:.1f}%)")
+                valid_px = total - masked_count
+                lines.append(f"Analyzing: {valid_px:,} px ({100-pct:.1f}%)")
+
+        self._info_label.setText("\n".join(lines) if lines else "")
+
     def update_frame(
         self, frame_bgr: np.ndarray, pixel_delta_e: Optional[np.ndarray] = None
     ) -> None:
@@ -75,6 +142,7 @@ class VideoPanel(QWidget):
         self._pixel_delta_e = pixel_delta_e
         h, w = frame_bgr.shape[:2]
         self._selector.set_frame_size(w, h)
+        self._update_info()
         self._refresh_display()
 
     def _refresh_display(self) -> None:
@@ -100,8 +168,17 @@ class VideoPanel(QWidget):
         qt_image = QImage(rgb.data, w, h, bytes_per_line, QImage.Format.Format_RGB888)
 
         label_size = self._label.size()
+        # Apply zoom: scale the image first, then fit to label
+        if self._zoom_factor != 1.0:
+            zoomed_w = int(w * self._zoom_factor)
+            zoomed_h = int(h * self._zoom_factor)
+            from PyQt6.QtCore import QSize
+            target_size = QSize(zoomed_w, zoomed_h)
+        else:
+            target_size = label_size
+
         pixmap = QPixmap.fromImage(qt_image).scaled(
-            label_size,
+            target_size,
             Qt.AspectRatioMode.KeepAspectRatio,
             Qt.TransformationMode.SmoothTransformation,
         )
@@ -223,6 +300,7 @@ class VideoPanel(QWidget):
                 self._update_cursor(ppos)
                 if self._selector.roi:
                     self.roi_selected.emit(self._selector.roi)
+                self._update_info()
                 self._refresh_display()
                 return True
             elif event.type() == QEvent.Type.Wheel:
