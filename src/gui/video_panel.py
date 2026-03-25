@@ -69,7 +69,7 @@ class VideoPanel(QWidget):
         self._interaction_locked = False
         self._pixmap_offset_x = 0
         self._pixmap_offset_y = 0
-        self._zoom_factor = 1.0
+        self._zoom_percent = 0  # 0 = fit to panel, >0 = percentage of original
         self._current_frame: Optional[np.ndarray] = None
         self._pixel_delta_e: Optional[np.ndarray] = None
         self._show_grid = False
@@ -81,9 +81,9 @@ class VideoPanel(QWidget):
         self._label.setMouseTracking(True)
         self._label.installEventFilter(self)
 
-        self._btn_zoom_in.clicked.connect(lambda: self._set_zoom(self._zoom_factor * 1.25))
-        self._btn_zoom_out.clicked.connect(lambda: self._set_zoom(self._zoom_factor / 1.25))
-        self._btn_zoom_fit.clicked.connect(lambda: self._set_zoom(1.0))
+        self._btn_zoom_in.clicked.connect(lambda: self._set_zoom(self._zoom_percent + 10))
+        self._btn_zoom_out.clicked.connect(lambda: self._set_zoom(self._zoom_percent - 10))
+        self._btn_zoom_fit.clicked.connect(lambda: self._set_zoom(0))
 
     @property
     def selector(self) -> RoiSelector:
@@ -107,12 +107,14 @@ class VideoPanel(QWidget):
     def set_valid_cells(self, valid: List[bool]) -> None:
         self._valid_cells = valid
 
-    def _set_zoom(self, factor: float) -> None:
-        self._zoom_factor = max(0.25, min(4.0, factor))
-        if self._zoom_factor == 1.0:
+    def _set_zoom(self, percent: int) -> None:
+        """Set zoom level. 0 = fit to panel, 10-400 = percentage of original size."""
+        if percent <= 0:
+            self._zoom_percent = 0
             self._zoom_label.setText("Fit")
         else:
-            self._zoom_label.setText(f"{self._zoom_factor:.0%}")
+            self._zoom_percent = max(10, min(400, percent))
+            self._zoom_label.setText(f"{self._zoom_percent}%")
         self._refresh_display()
 
     def _update_info(self) -> None:
@@ -183,29 +185,28 @@ class VideoPanel(QWidget):
         from PyQt6.QtCore import QSize
         viewport_size = self._scroll.viewport().size()
 
-        if self._zoom_factor == 1.0:
+        if self._zoom_percent == 0:
             # Fit to viewport
-            target_size = viewport_size
-        else:
-            zoomed_w = int(w * self._zoom_factor)
-            zoomed_h = int(h * self._zoom_factor)
-            target_size = QSize(zoomed_w, zoomed_h)
-
-        pixmap = QPixmap.fromImage(qt_image).scaled(
-            target_size,
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation,
-        )
-
-        self._selector.set_display_size(pixmap.width(), pixmap.height())
-
-        # When fitting, center in viewport. When zoomed, label resizes for scrolling.
-        if self._zoom_factor == 1.0:
+            pixmap = QPixmap.fromImage(qt_image).scaled(
+                viewport_size,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
             self._pixmap_offset_x = (viewport_size.width() - pixmap.width()) // 2
             self._pixmap_offset_y = (viewport_size.height() - pixmap.height()) // 2
         else:
+            # Percentage of original resolution
+            zoomed_w = int(w * self._zoom_percent / 100)
+            zoomed_h = int(h * self._zoom_percent / 100)
+            pixmap = QPixmap.fromImage(qt_image).scaled(
+                QSize(zoomed_w, zoomed_h),
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
             self._pixmap_offset_x = 0
             self._pixmap_offset_y = 0
+
+        self._selector.set_display_size(pixmap.width(), pixmap.height())
 
         painter = QPainter(pixmap)
         self._selector.draw_roi_overlay(painter)
