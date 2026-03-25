@@ -41,6 +41,9 @@ class RoiSelector:
 
     @property
     def mask(self) -> Optional[np.ndarray]:
+        # Return None if mask is all ones (user didn't paint anything)
+        if self._mask is not None and np.all(self._mask == 1):
+            return None
         return self._mask
 
     @property

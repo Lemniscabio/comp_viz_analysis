@@ -106,19 +106,16 @@ class AnalysisEngine:
         else:
             roi_mask = None
 
-        # Apply exclusion mask
-        masked = self._processor.apply_mask(cropped, roi_mask)
-        ref_masked = self._processor.apply_mask(ref_cropped, roi_mask)
+        # Brightness change check (on raw cropped frame, mask-aware)
+        self._processor.check_brightness(cropped, roi_mask)
 
-        # Brightness change check
-        self._processor.check_brightness(masked, roi_mask)
-
-        # Color space conversions
-        rgb = cv2.cvtColor(masked, cv2.COLOR_BGR2RGB)
-        ref_rgb = cv2.cvtColor(ref_masked, cv2.COLOR_BGR2RGB)
+        # Color space conversions on raw pixels (mask NOT applied to pixel data —
+        # each metric handles masking internally via the roi_mask parameter)
+        rgb = cv2.cvtColor(cropped, cv2.COLOR_BGR2RGB)
+        ref_rgb = cv2.cvtColor(ref_cropped, cv2.COLOR_BGR2RGB)
         lab = rgb_to_lab(rgb)
         ref_lab = rgb_to_lab(ref_rgb)
-        gray = cv2.cvtColor(masked, cv2.COLOR_BGR2GRAY)
+        gray = cv2.cvtColor(cropped, cv2.COLOR_BGR2GRAY)
 
         # 1. Delta E (must run before Variance — provides cell_avg)
         t_de = time.perf_counter()
