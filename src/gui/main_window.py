@@ -210,10 +210,10 @@ class MainWindow(QMainWindow):
         self._status.showMessage("Mask cleared")
 
     def _on_set_reference(self) -> None:
-        self._reference_frame_num = self._current_frame_num
-        self._status.showMessage(
-            f"Reference frame set to {self._reference_frame_num}"
-        )
+        # Disabled — too easy to trigger accidentally and silently breaks analysis.
+        # Reference frame is always frame 0. If needed in the future, add an
+        # explicit UI control with confirmation dialog.
+        pass
 
     def _on_open_video_menu(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
@@ -228,6 +228,8 @@ class MainWindow(QMainWindow):
         if self._controls._has_run:
             self._plots_panel.clear_data()
             self._controls.reset_for_new_video()
+            self._reference_frame_num = 0
+            self._current_frame_num = 0
             # Show first frame again
             if self._video_path:
                 import cv2
