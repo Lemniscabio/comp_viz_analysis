@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 from skimage.color import rgb2lab, lab2rgb
 
@@ -15,7 +17,12 @@ def rgb_to_lab(image: np.ndarray) -> np.ndarray:
     Returns:
         CIE-L*a*b* image with shape (H, W, 3) and dtype float64.
     """
-    return rgb2lab(image)
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=RuntimeWarning, module="skimage")
+        result = rgb2lab(image)
+    # Replace any NaN/inf from edge-case pixels with 0
+    np.nan_to_num(result, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+    return result
 
 
 def lab_to_rgb(image: np.ndarray) -> np.ndarray:
