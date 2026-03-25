@@ -8,7 +8,7 @@ import numpy as np
 from PyQt6.QtCore import Qt, pyqtSignal, QEvent
 from PyQt6.QtGui import QColor, QImage, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import (
-    QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget,
+    QHBoxLayout, QLabel, QPushButton, QScrollArea, QVBoxLayout, QWidget,
 )
 
 from src.gui.heatmap_overlay import create_heatmap_overlay
@@ -25,12 +25,18 @@ class VideoPanel(QWidget):
         super().__init__(parent)
         self._label = QLabel()
         self._label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._label.setMinimumSize(320, 240)
         self._label.setStyleSheet("background-color: #1a1a2e;")
+
+        # Scroll area wrapping the label — enables pan when zoomed
+        self._scroll = QScrollArea()
+        self._scroll.setWidget(self._label)
+        self._scroll.setWidgetResizable(False)
+        self._scroll.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._scroll.setStyleSheet("QScrollArea { background-color: #1a1a2e; border: none; }")
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self._label, stretch=1)
+        layout.addWidget(self._scroll, stretch=1)
 
         # Info panel below video
         self._info_label = QLabel("")
@@ -42,14 +48,18 @@ class VideoPanel(QWidget):
 
         # Zoom controls
         zoom_row = QHBoxLayout()
-        self._btn_zoom_in = QPushButton("+")
         self._btn_zoom_out = QPushButton("-")
+        self._btn_zoom_in = QPushButton("+")
         self._btn_zoom_fit = QPushButton("Fit")
-        for btn in [self._btn_zoom_in, self._btn_zoom_out, self._btn_zoom_fit]:
+        for btn in [self._btn_zoom_out, self._btn_zoom_in, self._btn_zoom_fit]:
             btn.setFixedSize(36, 24)
-            btn.setToolTip("Zoom in / out / fit to panel")
-            zoom_row.addWidget(btn)
-        self._zoom_label = QLabel("100%")
+        self._btn_zoom_out.setToolTip("Zoom out")
+        self._btn_zoom_in.setToolTip("Zoom in")
+        self._btn_zoom_fit.setToolTip("Fit to panel")
+        zoom_row.addWidget(self._btn_zoom_out)
+        zoom_row.addWidget(self._btn_zoom_in)
+        zoom_row.addWidget(self._btn_zoom_fit)
+        self._zoom_label = QLabel("Fit")
         self._zoom_label.setStyleSheet("color: #aaaaaa; font-size: 11px;")
         zoom_row.addWidget(self._zoom_label)
         zoom_row.addStretch()
@@ -99,7 +109,10 @@ class VideoPanel(QWidget):
 
     def _set_zoom(self, factor: float) -> None:
         self._zoom_factor = max(0.25, min(4.0, factor))
-        self._zoom_label.setText(f"{self._zoom_factor:.0%}")
+        if self._zoom_factor == 1.0:
+            self._zoom_label.setText("Fit")
+        else:
+            self._zoom_label.setText(f"{self._zoom_factor:.0%}")
         self._refresh_display()
 
     def _update_info(self) -> None:
@@ -167,15 +180,16 @@ class VideoPanel(QWidget):
         bytes_per_line = ch * w
         qt_image = QImage(rgb.data, w, h, bytes_per_line, QImage.Format.Format_RGB888)
 
-        label_size = self._label.size()
-        # Apply zoom: scale the image first, then fit to label
-        if self._zoom_factor != 1.0:
+        from PyQt6.QtCore import QSize
+        viewport_size = self._scroll.viewport().size()
+
+        if self._zoom_factor == 1.0:
+            # Fit to viewport
+            target_size = viewport_size
+        else:
             zoomed_w = int(w * self._zoom_factor)
             zoomed_h = int(h * self._zoom_factor)
-            from PyQt6.QtCore import QSize
             target_size = QSize(zoomed_w, zoomed_h)
-        else:
-            target_size = label_size
 
         pixmap = QPixmap.fromImage(qt_image).scaled(
             target_size,
@@ -185,9 +199,13 @@ class VideoPanel(QWidget):
 
         self._selector.set_display_size(pixmap.width(), pixmap.height())
 
-        # Track pixmap offset within the label (centered by Qt)
-        self._pixmap_offset_x = (self._label.width() - pixmap.width()) // 2
-        self._pixmap_offset_y = (self._label.height() - pixmap.height()) // 2
+        # When fitting, center in viewport. When zoomed, label resizes for scrolling.
+        if self._zoom_factor == 1.0:
+            self._pixmap_offset_x = (viewport_size.width() - pixmap.width()) // 2
+            self._pixmap_offset_y = (viewport_size.height() - pixmap.height()) // 2
+        else:
+            self._pixmap_offset_x = 0
+            self._pixmap_offset_y = 0
 
         painter = QPainter(pixmap)
         self._selector.draw_roi_overlay(painter)
@@ -198,6 +216,7 @@ class VideoPanel(QWidget):
 
         painter.end()
         self._label.setPixmap(pixmap)
+        self._label.resize(pixmap.size())
 
     def _draw_grid(self, painter: QPainter, pw: int, ph: int) -> None:
         """Draw N x N grid lines on the display. Invalid cells shown in red."""
@@ -229,6 +248,8 @@ class VideoPanel(QWidget):
     def _label_to_pixmap_pos(self, pos) -> QPoint:
         """Convert label coordinates to pixmap coordinates."""
         from PyQt6.QtCore import QPoint as QP
+        # When zoomed, label fills the pixmap so offset is 0
+        # When fitting, subtract the centering offset
         return QP(pos.x() - self._pixmap_offset_x, pos.y() - self._pixmap_offset_y)
 
     _HANDLE_CURSORS = {
