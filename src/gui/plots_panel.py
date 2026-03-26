@@ -219,7 +219,9 @@ class PlotsPanel(QWidget):
         self._de_extra_curves.clear()
 
     def enable_normalize(self, enabled: bool) -> None:
-        """Enable/disable the normalize checkbox."""
+        """Enable/disable the normalize checkbox. Unchecks when disabled."""
+        if not enabled:
+            self._de_normalize.setChecked(False)
         self._de_normalize.setEnabled(enabled)
 
     def save_snapshot(self, path: str) -> None:
