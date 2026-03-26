@@ -5,7 +5,7 @@ from typing import Any, Dict, List
 
 import numpy as np
 import pyqtgraph as pg
-from PyQt6.QtWidgets import QComboBox, QGridLayout, QHBoxLayout, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QCheckBox, QComboBox, QGridLayout, QHBoxLayout, QVBoxLayout, QWidget
 
 
 class PlotsPanel(QWidget):
@@ -40,6 +40,16 @@ class PlotsPanel(QWidget):
         self._de_mode.addItems(["Grand Delta-E", "By Row", "By Column"])
         self._de_mode.currentIndexChanged.connect(self._on_de_mode_changed)
         de_header.addWidget(self._de_mode)
+
+        self._de_normalize = QCheckBox("Normalize (0-1)")
+        self._de_normalize.setEnabled(False)
+        self._de_normalize.setToolTip(
+            "Show Delta-E normalized to 0-1 range\n"
+            "(divided by maximum value). Available after analysis completes."
+        )
+        self._de_normalize.toggled.connect(self._update_de_plot)
+        de_header.addWidget(self._de_normalize)
+
         de_header.addStretch()
         main_layout.addLayout(de_header)
 
@@ -134,25 +144,39 @@ class PlotsPanel(QWidget):
 
         self._update_de_plot()
 
+    def _normalize(self, values: np.ndarray) -> np.ndarray:
+        """Normalize values to 0-1 range if checkbox is checked."""
+        if not self._de_normalize.isChecked():
+            return values
+        max_val = np.max(values) if len(values) > 0 and np.max(values) > 0 else 1.0
+        return values / max_val
+
     def _update_de_plot(self) -> None:
         t = np.array(self._timestamps)
         mode = self._de_mode.currentIndex()
+
+        # Update Y-axis label based on normalize state
+        if self._de_normalize.isChecked():
+            self._plot_de.setLabel("left", "Normalized Delta-E (0-1)")
+        else:
+            self._plot_de.setLabel("left", "Delta-E (perceptual units)")
 
         for c in self._de_extra_curves:
             self._plot_de.removeItem(c)
         self._de_extra_curves.clear()
 
         if mode == 0:
-            self._curve_de.setData(t, np.array(self._data["grand_delta_e"]))
+            raw = np.array(self._data["grand_delta_e"])
+            self._curve_de.setData(t, self._normalize(raw))
             self._curve_de.setVisible(True)
         elif mode == 1 and self._row_avg_data:
             self._curve_de.setVisible(False)
             n_rows = len(self._row_avg_data[0])
             for r in range(n_rows):
-                vals = [d[r] for d in self._row_avg_data if len(d) > r]
+                vals = np.array([d[r] for d in self._row_avg_data if len(d) > r])
                 c = self._plot_de.plot(
                     t[: len(vals)],
-                    np.array(vals),
+                    self._normalize(vals),
                     pen=pg.intColor(r, n_rows),
                     name=f"Row {r}",
                 )
@@ -161,10 +185,10 @@ class PlotsPanel(QWidget):
             self._curve_de.setVisible(False)
             n_cols = len(self._col_avg_data[0])
             for c_idx in range(n_cols):
-                vals = [d[c_idx] for d in self._col_avg_data if len(d) > c_idx]
+                vals = np.array([d[c_idx] for d in self._col_avg_data if len(d) > c_idx])
                 c = self._plot_de.plot(
                     t[: len(vals)],
-                    np.array(vals),
+                    self._normalize(vals),
                     pen=pg.intColor(c_idx, n_cols),
                     name=f"Col {c_idx}",
                 )
@@ -193,6 +217,10 @@ class PlotsPanel(QWidget):
         for c in self._de_extra_curves:
             self._plot_de.removeItem(c)
         self._de_extra_curves.clear()
+
+    def enable_normalize(self, enabled: bool) -> None:
+        """Enable/disable the normalize checkbox."""
+        self._de_normalize.setEnabled(enabled)
 
     def save_snapshot(self, path: str) -> None:
         """Save a screenshot of all plots to an image file."""

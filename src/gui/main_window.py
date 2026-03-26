@@ -246,6 +246,7 @@ class MainWindow(QMainWindow):
         grid_size = config["grid_rows"]
         self._video_panel.set_grid_size(grid_size, grid_size)
         self._plots_panel.clear_data()
+        self._plots_panel.enable_normalize(False)
 
         roi = self._video_panel.selector.roi
         mask = self._video_panel.selector.mask
@@ -308,6 +309,7 @@ class MainWindow(QMainWindow):
 
     def _on_analysis_finished(self) -> None:
         self._video_panel.set_interaction_locked(False)
+        self._plots_panel.enable_normalize(True)
         self._set_state(AppState.CONFIGURED)
         count = 0
         if self._worker and self._worker.engine:
