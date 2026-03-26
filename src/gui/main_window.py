@@ -165,6 +165,7 @@ class MainWindow(QMainWindow):
         self._video_path = path
         self._controls.reset_for_new_video()
         self._plots_panel.clear_data()
+        self._plots_panel.enable_normalize(False)
         self._status.showMessage(
             f"Video loaded: {Path(path).name} -- Select ROI or click Start Analysis"
         )
@@ -227,6 +228,7 @@ class MainWindow(QMainWindow):
         # If restarting, reset to initial state first (don't auto-run)
         if self._controls._has_run:
             self._plots_panel.clear_data()
+            self._plots_panel.enable_normalize(False)
             self._controls.reset_for_new_video()
             self._reference_frame_num = 0
             self._current_frame_num = 0
