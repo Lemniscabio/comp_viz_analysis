@@ -103,6 +103,10 @@ class AnalysisWorker(QThread):
                 processed += 1
                 self.progress.emit(processed, total)
 
+            # Emit final progress with actual count as total
+            if processed != total:
+                self.progress.emit(processed, processed)
+
             reader.release()
             logging.getLogger("kineticolor").removeHandler(warn_handler)
             self.analysis_finished.emit()
