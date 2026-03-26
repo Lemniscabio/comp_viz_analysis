@@ -9,7 +9,8 @@ logger = logging.getLogger("kineticolor")
 
 COLUMNS = [
     "frame_number", "timestamp",
-    "grand_delta_e", "contact_perimeter",
+    "grand_delta_e", "normalized_delta_e",
+    "contact_perimeter",
     "contrast", "homogeneity", "energy",
     "variance_r", "variance_g", "variance_b",
     "variance_l", "variance_a", "variance_b_star",
@@ -20,34 +21,35 @@ COLUMNS = [
 class DataExporter:
     """Exporter for time series metric data to CSV and XLSX formats."""
 
+    def _add_normalized_delta_e(
+        self, results: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """Add normalized_delta_e column (0-1 range, divided by max)."""
+        if not results:
+            return results
+        max_de = max(r.get("grand_delta_e", 0) for r in results)
+        if max_de <= 0:
+            max_de = 1.0
+        enriched = []
+        for row in results:
+            new_row = dict(row)
+            new_row["normalized_delta_e"] = row.get("grand_delta_e", 0) / max_de
+            enriched.append(new_row)
+        return enriched
+
     def export(self, results: List[Dict[str, Any]], output_path: Union[Path, str],
                fmt: str = "csv") -> None:
-        """Export results to CSV or XLSX.
-
-        Args:
-            results: List of result dictionaries with metric data.
-            output_path: Path to output file.
-            fmt: Export format ('csv' or 'xlsx').
-
-        Raises:
-            ValueError: If format is not supported.
-        """
         output_path = Path(output_path)
+        enriched = self._add_normalized_delta_e(results)
         if fmt == "csv":
-            self._export_csv(results, output_path)
+            self._export_csv(enriched, output_path)
         elif fmt == "xlsx":
-            self._export_xlsx(results, output_path)
+            self._export_xlsx(enriched, output_path)
         else:
             raise ValueError(f"Unsupported format: {fmt}")
-        logger.info(f"Exported {len(results)} rows to {output_path}")
+        logger.info(f"Exported {len(enriched)} rows to {output_path}")
 
     def _export_csv(self, results: List[Dict[str, Any]], path: Path) -> None:
-        """Export results to CSV file.
-
-        Args:
-            results: List of result dictionaries.
-            path: Output file path.
-        """
         with open(path, "w", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=COLUMNS, extrasaction="ignore")
             writer.writeheader()
@@ -55,12 +57,6 @@ class DataExporter:
                 writer.writerow(row)
 
     def _export_xlsx(self, results: List[Dict[str, Any]], path: Path) -> None:
-        """Export results to XLSX file.
-
-        Args:
-            results: List of result dictionaries.
-            path: Output file path.
-        """
         from openpyxl import Workbook
         wb = Workbook()
         ws = wb.active

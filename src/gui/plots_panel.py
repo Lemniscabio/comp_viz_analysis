@@ -193,3 +193,8 @@ class PlotsPanel(QWidget):
         for c in self._de_extra_curves:
             self._plot_de.removeItem(c)
         self._de_extra_curves.clear()
+
+    def save_snapshot(self, path: str) -> None:
+        """Save a screenshot of all plots to an image file."""
+        pixmap = self.grab()
+        pixmap.save(path)

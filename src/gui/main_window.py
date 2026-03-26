@@ -338,8 +338,13 @@ class MainWindow(QMainWindow):
             results_snapshot = list(self._worker.engine.results)
             exporter = DataExporter()
             exporter.export(results_snapshot, path, fmt=fmt)
+
+            # Save plots snapshot alongside the data file
+            plots_path = Path(path).with_suffix(".png")
+            self._plots_panel.save_snapshot(str(plots_path))
+
             self._status.showMessage(
-                f"Exported {len(results_snapshot)} rows to {path}"
+                f"Exported {len(results_snapshot)} rows to {path} + plots to {plots_path.name}"
             )
 
     def closeEvent(self, event) -> None:
