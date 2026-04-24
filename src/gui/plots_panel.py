@@ -91,6 +91,16 @@ class PlotsPanel(QWidget):
         self._curve_de = self._plot_de.plot(pen="y", name="Grand Delta-E")
         self._de_extra_curves: List[pg.PlotDataItem] = []
 
+        self._mixing_line = pg.InfiniteLine(
+            angle=90,
+            pen=pg.mkPen("w", width=2, style=pg.QtCore.Qt.PenStyle.DashLine),
+        )
+        self._mixing_label = pg.TextItem(color="w", anchor=(0, 1))
+        self._mixing_line.setVisible(False)
+        self._mixing_label.setVisible(False)
+        self._plot_de.addItem(self._mixing_line)
+        self._plot_de.addItem(self._mixing_label)
+
         self._curve_contrast = self._plot_contrast.plot(pen="c")
         self._curve_energy = self._plot_energy.plot(pen="m")
         self._curve_homogeneity = self._plot_homogeneity.plot(pen="g")
@@ -165,10 +175,15 @@ class PlotsPanel(QWidget):
             self._plot_de.removeItem(c)
         self._de_extra_curves.clear()
 
+        if mode != 0:
+            self._mixing_line.setVisible(False)
+            self._mixing_label.setVisible(False)
+
         if mode == 0:
             raw = np.array(self._data["grand_delta_e"])
             self._curve_de.setData(t, self._normalize(raw))
             self._curve_de.setVisible(True)
+            self._update_mixing_marker(t, raw)
         elif mode == 1 and self._row_avg_data:
             self._curve_de.setVisible(False)
             n_rows = len(self._row_avg_data[0])
@@ -193,6 +208,26 @@ class PlotsPanel(QWidget):
                     name=f"Col {c_idx}",
                 )
                 self._de_extra_curves.append(c)
+
+    def _update_mixing_marker(self, t: np.ndarray, raw: np.ndarray) -> None:
+        """Mark first time normalized grand Delta-E >= 0.95 (mixing time)."""
+        if not self._de_normalize.isChecked() or len(raw) == 0:
+            self._mixing_line.setVisible(False)
+            self._mixing_label.setVisible(False)
+            return
+        max_val = float(np.max(raw)) if np.max(raw) > 0 else 1.0
+        norm = raw / max_val
+        idx = np.argmax(norm >= 0.95)
+        if norm[idx] < 0.95:
+            self._mixing_line.setVisible(False)
+            self._mixing_label.setVisible(False)
+            return
+        t_mix = float(t[idx])
+        self._mixing_line.setPos(t_mix)
+        self._mixing_label.setText(f"Mixing time: {t_mix:.2f}s")
+        self._mixing_label.setPos(t_mix, 0.95)
+        self._mixing_line.setVisible(True)
+        self._mixing_label.setVisible(True)
 
     def _on_de_mode_changed(self, index: int) -> None:
         self._update_de_plot()

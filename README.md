@@ -30,11 +30,13 @@ pip install -r requirements.txt
 - Python 3.10+ (3.12 recommended)
 - OpenCV, NumPy, SciPy, scikit-image
 - PyQt6, pyqtgraph (for GUI)
+- matplotlib (for batch summary plots)
 - PyYAML, openpyxl (for config and export)
+- `ffmpeg` on PATH (for `scripts/downscale_videos.sh` only)
 
 ---
 
-## Two Ways to Use
+## Three Ways to Use
 
 ### 1. Desktop GUI (recommended)
 
@@ -108,6 +110,53 @@ python -m src.main --video experiment.mp4 --config my_config.yaml --reference-fr
 # (edit config/default_config.yaml and set frame_skip: 5)
 python -m src.main --video long_experiment.mp4
 ```
+
+### 3. Batch Scripts (for many videos)
+
+Two helpers live in `scripts/` for processing a whole folder of experiments end-to-end.
+
+#### `downscale_videos.sh` — pre-process raw 4K captures
+
+Batch re-encodes every video in a folder to 480p and crops the top 1/3 (where the bioreactor lid / rig typically sits). Audio is stripped. Source fps is preserved.
+
+```bash
+bash scripts/downscale_videos.sh <input_dir> <output_dir> [scaler=lanczos] [crf=18]
+
+# Example
+bash scripts/downscale_videos.sh ~/Desktop/raw_videos ~/Desktop/videos_480p
+```
+
+- **scaler**: `lanczos` (default, sharp), `bicubic`, `bilinear`, `area` (best for large downscales), `neighbor`.
+- **crf**: 0 = lossless, 18 ≈ visually lossless (default), 23 = ffmpeg default, 28 = small/ugly.
+- **Resumable**: already-converted files in `<output_dir>` are skipped.
+- Output filenames: `<stem>_480p_cropped.mp4`.
+
+#### `batch_analyze.py` — run Kineticolor on every video
+
+Iterates a folder of (ideally pre-processed) videos and writes matching `<stem>.csv` + `<stem>.png` + `<stem>.log` into an output directory.
+
+```bash
+python scripts/batch_analyze.py <video_dir> <output_dir> [--config PATH]
+
+# Example
+python scripts/batch_analyze.py ~/Desktop/videos_480p ~/Desktop/mixing_results
+```
+
+Behavior:
+- **Sequential.** One video at a time. numpy / skimage / OpenCV already parallelize across all cores via BLAS/OpenMP, so one Python process saturates the CPU — running multiple in parallel would thrash without speedup.
+- **Resumable.** On re-run, any video whose CSV already exists in `<output_dir>` is skipped. Partial outputs from a failed video are deleted so the retry is clean.
+- **Per-video commit.** CSV + PNG are written to disk before moving to the next video; a crash mid-batch loses only the in-flight one.
+- **Summary PNG** per video: two-panel figure showing raw grand ΔE and normalized grand ΔE over time, with dotted reference lines at 0.90 / 0.95 / 0.99.
+- **Mixing-time placeholder in CSV.** Every CSV gets a commented header block prepended:
+  ```
+  # mixing_time_t90 = TBD
+  # mixing_time_t95 = TBD
+  # mixing_time_t99 = TBD
+  # quantification_rule = TBD  (grand_delta_e / max_cell_delta_e / combined)
+  ```
+  The computation is stubbed in `_compute_mixing_times()` inside the script — uncomment once a quantification rule is chosen.
+
+**Tip for overnight / lid-closed runs (macOS):** start an Amphetamine session with "Allow system sleep when display is closed" unchecked, plug in power, then launch the script. The process keeps running with the lid shut.
 
 ---
 
@@ -209,6 +258,9 @@ comp_viz_analysis/
       config_loader.py         # YAML config with validation
   config/
     default_config.yaml        # Default parameters
+  scripts/
+    downscale_videos.sh        # Batch ffmpeg: crop top 1/3 + downscale to 480p
+    batch_analyze.py           # Batch Kineticolor runner (CSV + PNG per video)
   tests/                       # Unit + integration tests
 ```
 
