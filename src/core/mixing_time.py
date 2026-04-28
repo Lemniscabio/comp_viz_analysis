@@ -382,8 +382,8 @@ def compute_spatial_time(
 @dataclass
 class MixingTimeParams:
     levels: Tuple[float, ...] = (0.90, 0.95, 0.99)
-    auto_detect_start: bool = True
-    manual_t_start_s: Optional[float] = None
+    auto_detect_start: bool = False
+    manual_t_start_s: Optional[float] = 0.0
     smooth_window_s: float = DEFAULT_SMOOTH_WINDOW_S
     tail_fraction: float = DEFAULT_TAIL_FRACTION
     hold_duration_s: float = DEFAULT_HOLD_DURATION_S

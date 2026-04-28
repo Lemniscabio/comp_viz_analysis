@@ -203,15 +203,18 @@ class ControlsPanel(QWidget):
 
         row4.addWidget(QLabel("Auto t_start:"))
         self._chk_auto_start = QCheckBox()
-        self._chk_auto_start.setChecked(True)
-        self._chk_auto_start.setToolTip("Automatically detect when mixing begins")
+        self._chk_auto_start.setChecked(False)
+        self._chk_auto_start.setToolTip(
+            "Automatically detect when mixing begins. Off by default — "
+            "assume t=0 is the start (videos already trimmed to drop-in)."
+        )
         row4.addWidget(self._chk_auto_start)
 
         row4.addWidget(QLabel("Manual t_start (s):"))
         self._spin_manual_start = QDoubleSpinBox()
         self._spin_manual_start.setRange(0.0, 1e6)
         self._spin_manual_start.setValue(0.0)
-        self._spin_manual_start.setEnabled(False)
+        self._spin_manual_start.setEnabled(True)
         self._chk_auto_start.toggled.connect(
             lambda on: self._spin_manual_start.setEnabled(not on)
         )
