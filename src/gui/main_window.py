@@ -168,6 +168,7 @@ class MainWindow(QMainWindow):
         ctrl.clear_mask_requested.connect(self._on_clear_mask)
         self._video_panel.roi_selected.connect(self._on_roi_selected)
         self._video_panel.reference_frame_requested.connect(self._on_set_reference)
+        ctrl.batch_requested.connect(self._on_batch_requested)
 
     def _set_state(self, state: AppState) -> None:
         self._state = state
@@ -382,6 +383,14 @@ class MainWindow(QMainWindow):
             self._status.showMessage(
                 f"Exported {len(results_snapshot)} rows to {path} + plots to {plots_path.name}"
             )
+
+    def _on_batch_requested(self) -> None:
+        """Open the batch dialog. Wired in Task 15."""
+        from PyQt6.QtWidgets import QMessageBox
+        QMessageBox.information(
+            self, "Batch Analyze",
+            "Batch analysis dialog not yet implemented (Task 15)."
+        )
 
     def closeEvent(self, event) -> None:
         if self._worker and self._worker.isRunning():

@@ -6,8 +6,8 @@ from typing import Any, Dict
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QComboBox, QFileDialog, QHBoxLayout, QLabel, QProgressBar,
-    QPushButton, QSlider, QVBoxLayout, QWidget,
+    QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QHBoxLayout, QLabel,
+    QProgressBar, QPushButton, QSlider, QVBoxLayout, QWidget,
 )
 
 
@@ -24,6 +24,7 @@ class ControlsPanel(QWidget):
 
     video_selected = pyqtSignal(str)
     start_requested = pyqtSignal()
+    batch_requested = pyqtSignal()
     stop_requested = pyqtSignal()
     export_requested = pyqtSignal()
     roi_mode_requested = pyqtSignal()
@@ -197,6 +198,61 @@ class ControlsPanel(QWidget):
         row3.addStretch()
         main_layout.addLayout(row3)
 
+        # Row 4: Mixing-time settings + batch action
+        row4 = QHBoxLayout()
+
+        row4.addWidget(QLabel("Auto t_start:"))
+        self._chk_auto_start = QCheckBox()
+        self._chk_auto_start.setChecked(True)
+        self._chk_auto_start.setToolTip("Automatically detect when mixing begins")
+        row4.addWidget(self._chk_auto_start)
+
+        row4.addWidget(QLabel("Manual t_start (s):"))
+        self._spin_manual_start = QDoubleSpinBox()
+        self._spin_manual_start.setRange(0.0, 1e6)
+        self._spin_manual_start.setValue(0.0)
+        self._spin_manual_start.setEnabled(False)
+        self._chk_auto_start.toggled.connect(
+            lambda on: self._spin_manual_start.setEnabled(not on)
+        )
+        row4.addWidget(self._spin_manual_start)
+
+        row4.addWidget(QLabel("Smooth window (s):"))
+        self._spin_smooth = QDoubleSpinBox()
+        self._spin_smooth.setRange(0.1, 10.0)
+        self._spin_smooth.setSingleStep(0.1)
+        self._spin_smooth.setValue(1.5)
+        row4.addWidget(self._spin_smooth)
+
+        row4.addWidget(QLabel("Tail frac:"))
+        self._spin_tail = QDoubleSpinBox()
+        self._spin_tail.setRange(0.05, 0.5)
+        self._spin_tail.setSingleStep(0.01)
+        self._spin_tail.setValue(0.20)
+        row4.addWidget(self._spin_tail)
+
+        row4.addWidget(QLabel("Hold (s):"))
+        self._spin_hold = QDoubleSpinBox()
+        self._spin_hold.setRange(0.5, 30.0)
+        self._spin_hold.setSingleStep(0.5)
+        self._spin_hold.setValue(2.0)
+        row4.addWidget(self._spin_hold)
+
+        self._chk_include_eh = QCheckBox("Include E/H in texture")
+        self._chk_include_eh.setToolTip(
+            "Include Energy & Homogeneity in the texture gate (advanced)"
+        )
+        row4.addWidget(self._chk_include_eh)
+
+        self._btn_batch = QPushButton("Batch Analyze Videos")
+        self._btn_batch.setToolTip(
+            "Run analysis on multiple videos using current ROI/mask/grid as template"
+        )
+        row4.addWidget(self._btn_batch)
+
+        row4.addStretch()
+        main_layout.addLayout(row4)
+
         # Connections
         self._btn_upload.clicked.connect(self._on_upload)
         self._btn_roi.clicked.connect(self._on_roi_toggle)
@@ -210,6 +266,7 @@ class ControlsPanel(QWidget):
         self._slider_threshold.valueChanged.connect(
             lambda v: self._lbl_threshold.setText(str(v))
         )
+        self._btn_batch.clicked.connect(lambda: self.batch_requested.emit())
 
         self._has_run = False
         self.set_state(AppState.IDLE)
@@ -307,8 +364,14 @@ class ControlsPanel(QWidget):
         for w in [
             self._combo_grid, self._combo_skip, self._combo_glcm_skip,
             self._combo_levels, self._slider_threshold, self._combo_format,
+            self._chk_auto_start, self._spin_manual_start, self._spin_smooth,
+            self._spin_tail, self._spin_hold, self._chk_include_eh,
+            self._btn_batch,
         ]:
             w.setEnabled(not running and not paused)
+
+        if not running and not paused:
+            self._spin_manual_start.setEnabled(not self._chk_auto_start.isChecked())
 
     def update_progress(self, current: int, total: int) -> None:
         """Update the progress bar."""
@@ -338,6 +401,21 @@ class ControlsPanel(QWidget):
             "video_fps_override": None,
             "brightness_change_threshold": 0.2,
         }
+
+    def get_mixing_params(self):
+        """Build a MixingTimeParams from the row-4 settings."""
+        from src.core.mixing_time import MixingTimeParams
+        return MixingTimeParams(
+            auto_detect_start=self._chk_auto_start.isChecked(),
+            manual_t_start_s=(
+                None if self._chk_auto_start.isChecked()
+                else float(self._spin_manual_start.value())
+            ),
+            smooth_window_s=float(self._spin_smooth.value()),
+            tail_fraction=float(self._spin_tail.value()),
+            hold_duration_s=float(self._spin_hold.value()),
+            include_energy_homogeneity=self._chk_include_eh.isChecked(),
+        )
 
     def _on_upload(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
