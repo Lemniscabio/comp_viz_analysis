@@ -58,3 +58,20 @@ class TestAnalysisEngine:
         engine.process_frame(frame3, frame_number=2, timestamp=0.066)
         # Now contrast should be recomputed and be > 0
         assert engine.results[2]["contrast"] > 0
+
+    def test_results_row_contains_cell_avg(self):
+        config = self._make_config()
+        engine = AnalysisEngine(config)
+        ref = np.full((50, 50, 3), 100, dtype=np.uint8)
+        engine.set_reference_frame_data(ref)
+        frame = np.full((50, 50, 3), 150, dtype=np.uint8)
+        engine.process_frame(frame, frame_number=0, timestamp=0.0)
+        engine.process_frame(frame, frame_number=1, timestamp=0.033)
+        row = engine.results[0]
+        assert "cell_avg" in row
+        assert "row_avg" in row
+        assert "col_avg" in row
+        n_cells = config["grid_rows"] * config["grid_cols"]
+        assert len(row["cell_avg"]) == n_cells
+        assert len(row["row_avg"]) == config["grid_rows"]
+        assert len(row["col_avg"]) == config["grid_cols"]

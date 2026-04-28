@@ -167,6 +167,9 @@ class AnalysisEngine:
             "contrast": self._last_glcm_results["contrast"],
             "homogeneity": self._last_glcm_results["homogeneity"],
             "energy": self._last_glcm_results["energy"],
+            "cell_avg": np.asarray(de_result["cell_avg"], dtype=np.float64).copy(),
+            "row_avg": np.asarray(de_result["row_avg"], dtype=np.float64).copy(),
+            "col_avg": np.asarray(de_result["col_avg"], dtype=np.float64).copy(),
         }
         stored_row.update(var_result)
         self._results.append(stored_row)
