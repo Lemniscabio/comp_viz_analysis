@@ -292,6 +292,65 @@ class PlotsPanel(QWidget):
         self._mixing_line.setVisible(True)
         self._mixing_label.setVisible(True)
 
+    def _all_metric_plots(self):
+        return [
+            self._plot_de,
+            self._plot_contrast,
+            self._plot_energy,
+            self._plot_homogeneity,
+            self._plot_contact,
+        ]
+
+    def set_mixing_result(self, result) -> None:
+        """Draw vertical T_mix lines on every metric plot.
+
+        result: MixingTimeResult (duck-typed) or None to clear.
+        """
+        if not hasattr(self, "_mix_markers"):
+            self._mix_markers = []  # list of (plot, item) tuples
+
+        # Remove any existing markers from each plot they were added to.
+        for plot, item in self._mix_markers:
+            plot.removeItem(item)
+        self._mix_markers.clear()
+
+        if result is None:
+            return
+
+        main_t_rel = result.t_mix.get(0.95)
+        if main_t_rel is None or main_t_rel != main_t_rel:  # NaN guard
+            return
+        abs_t = result.t_start_s + main_t_rel
+
+        component_times = {
+            "ΔE95":      result.t_deltaE.get(0.95),
+            "Spatial95": result.t_spatial.get(0.95),
+            "Texture95": result.t_texture.get(0.95),
+        }
+
+        for plot in self._all_metric_plots():
+            line = pg.InfiniteLine(
+                pos=abs_t, angle=90,
+                pen=pg.mkPen("w", width=2, style=pg.QtCore.Qt.PenStyle.SolidLine),
+            )
+            plot.addItem(line)
+            self._mix_markers.append((plot, line))
+
+            text = pg.TextItem(f"Tmix95 = {main_t_rel:.2f} s", color="w", anchor=(0, 1))
+            text.setPos(abs_t, 0)
+            plot.addItem(text)
+            self._mix_markers.append((plot, text))
+
+            for label, ct in component_times.items():
+                if ct is None or ct != ct:
+                    continue
+                comp_line = pg.InfiniteLine(
+                    pos=result.t_start_s + ct, angle=90,
+                    pen=pg.mkPen("y", width=1, style=pg.QtCore.Qt.PenStyle.DashLine),
+                )
+                plot.addItem(comp_line)
+                self._mix_markers.append((plot, comp_line))
+
     def _on_de_mode_changed(self, index: int) -> None:
         self._update_de_plot()
 
@@ -317,6 +376,7 @@ class PlotsPanel(QWidget):
         for c in self._de_extra_curves:
             self._plot_de.removeItem(c)
         self._de_extra_curves.clear()
+        self.set_mixing_result(None)
 
     def set_grid_shape(self, rows: int, cols: int) -> None:
         """Set the spatial grid dimensions for the per-cell Delta-E view."""
