@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
 
 from src.core.export import DataExporter
 from src.gui.analysis_worker import AnalysisWorker
+from src.gui.batch_dialog import BatchDialog
 from src.gui.controls_panel import AppState, ControlsPanel
 from src.gui.mixing_results_panel import MixingResultsPanel
 from src.gui.plots_panel import PlotsPanel
@@ -385,12 +386,20 @@ class MainWindow(QMainWindow):
             )
 
     def _on_batch_requested(self) -> None:
-        """Open the batch dialog. Wired in Task 15."""
-        from PyQt6.QtWidgets import QMessageBox
-        QMessageBox.information(
-            self, "Batch Analyze",
-            "Batch analysis dialog not yet implemented (Task 15)."
+        if not self._video_path:
+            QMessageBox.information(
+                self, "Batch",
+                "Open one video first to set ROI/mask/grid as a template.",
+            )
+            return
+        config = self._controls.get_config()
+        params = self._controls.get_mixing_params()
+        roi = self._video_panel.selector.roi
+        mask = self._video_panel.selector.mask
+        dlg = BatchDialog(
+            config=config, roi=roi, mask=mask, params=params, parent=self,
         )
+        dlg.exec()
 
     def closeEvent(self, event) -> None:
         if self._worker and self._worker.isRunning():
