@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
 from src.core.export import DataExporter
 from src.gui.analysis_worker import AnalysisWorker
 from src.gui.controls_panel import AppState, ControlsPanel
+from src.gui.mixing_results_panel import MixingResultsPanel
 from src.gui.plots_panel import PlotsPanel
 from src.gui.roi_selector import InteractionMode
 from src.gui.video_panel import VideoPanel
@@ -33,6 +34,7 @@ class MainWindow(QMainWindow):
         self._reference_frame_num = 0
         self._current_frame_num = 0
         self._state = AppState.IDLE
+        self._latest_mixing_result = None
 
         self._setup_ui()
         self._setup_menu()
@@ -62,6 +64,16 @@ class MainWindow(QMainWindow):
             QDockWidget.DockWidgetFeature.DockWidgetMovable
         )
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self._controls_dock)
+
+        # Mixing results dock (right)
+        self._mixing_panel = MixingResultsPanel()
+        self._mixing_dock = QDockWidget("Mixing Time", self)
+        self._mixing_dock.setWidget(self._mixing_panel)
+        self._mixing_dock.setFeatures(
+            QDockWidget.DockWidgetFeature.DockWidgetMovable
+        )
+        self._mixing_dock.setMinimumWidth(280)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._mixing_dock)
 
         # Toolbar with sidebar toggle
         toolbar = self.addToolBar("Main")
@@ -166,6 +178,9 @@ class MainWindow(QMainWindow):
         self._controls.reset_for_new_video()
         self._plots_panel.clear_data()
         self._plots_panel.enable_normalize(False)
+        self._plots_panel.set_mixing_result(None)
+        self._mixing_panel.clear()
+        self._latest_mixing_result = None
         self._status.showMessage(
             f"Video loaded: {Path(path).name} -- Select ROI or click Start Analysis"
         )
@@ -229,6 +244,8 @@ class MainWindow(QMainWindow):
         if self._controls._has_run:
             self._plots_panel.clear_data()
             self._plots_panel.enable_normalize(False)
+            self._mixing_panel.clear()
+            self._latest_mixing_result = None
             self._controls.reset_for_new_video()
             self._reference_frame_num = 0
             self._current_frame_num = 0
@@ -251,6 +268,8 @@ class MainWindow(QMainWindow):
         self._plots_panel.set_grid_shape(grid_rows, grid_cols)
         self._plots_panel.clear_data()
         self._plots_panel.enable_normalize(False)
+        self._mixing_panel.clear()
+        self._latest_mixing_result = None
 
         roi = self._video_panel.selector.roi
         mask = self._video_panel.selector.mask
@@ -316,6 +335,16 @@ class MainWindow(QMainWindow):
         self._video_panel.set_interaction_locked(False)
         self._plots_panel.enable_normalize(True)
         self._set_state(AppState.CONFIGURED)
+        if self._worker and self._worker.engine:
+            from src.core.mixing_time import MixingTimeParams
+            params = getattr(self._controls, "get_mixing_params", lambda: MixingTimeParams())()
+            try:
+                self._latest_mixing_result = self._worker.engine.finalize(params)
+                self._mixing_panel.set_result(self._latest_mixing_result)
+                self._plots_panel.set_mixing_result(self._latest_mixing_result)
+            except Exception as e:
+                self._status.showMessage(f"Mixing-time analysis failed: {e}", 5000)
+                self._latest_mixing_result = None
         count = 0
         if self._worker and self._worker.engine:
             count = len(self._worker.engine.results)
