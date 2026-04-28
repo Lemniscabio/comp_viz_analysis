@@ -66,42 +66,40 @@ VIDEO_EXTS = {".mp4", ".mov", ".avi", ".mkv", ".m4v"}
 # Mixing-time stub
 # ---------------------------------------------------------------------------
 def _compute_mixing_times(results: list) -> dict:
-    """Return t_90 / t_95 / t_99 once a quantification rule is chosen.
+    """Compute T_mix at 90/95/99 using the shared mixing_time module.
 
-    Options on the table:
-      (a) first t where normalized grand ΔE >= threshold
-      (b) first t where max(cell ΔE) / max(cell ΔE plateau) >= threshold
-      (c) max(t_threshold_grand, t_threshold_maxcell)
-
-    Until we pick one, return placeholders so the CSV header block is
-    structurally present.
+    Rule: T_mix,L = max(T_deltaE,L, T_spatial,L, T_texture,L).
     """
-    # --- uncomment once a rule is chosen ---
-    # import numpy as np
-    # t   = np.array([r["timestamp"] for r in results])
-    # g   = np.array([r["grand_delta_e"] for r in results])
-    # gn  = g / (g.max() if g.max() > 0 else 1.0)
-    # def first_cross(thresh: float) -> float | None:
-    #     idx = int(np.argmax(gn >= thresh))
-    #     return float(t[idx]) if gn[idx] >= thresh else None
-    # return {"t_90": first_cross(0.90),
-    #         "t_95": first_cross(0.95),
-    #         "t_99": first_cross(0.99)}
-    return {"t_90": None, "t_95": None, "t_99": None}
+    from src.core.mixing_time import MixingTimeParams, compute_mixing_time
+
+    r = compute_mixing_time(results, MixingTimeParams())
+    return {
+        "t_90": r.t_mix.get(0.90),
+        "t_95": r.t_mix.get(0.95),
+        "t_99": r.t_mix.get(0.99),
+        "result": r,
+    }
 
 
 def _prepend_mixing_header(csv_path: Path, mix: dict) -> None:
-    """Prepend a commented block with mixing-time placeholders to the CSV."""
-    fmt = lambda v: "TBD" if v is None else f"{v:.3f}"  # noqa: E731
+    """Prepend a commented block with the computed mixing times."""
+    def _fmt(v):
+        if v is None:
+            return "NaN"
+        try:
+            if v != v:  # NaN
+                return "NaN"
+            return f"{float(v):.3f}"
+        except (TypeError, ValueError):
+            return "NaN"
+
     header = (
-        f"# mixing_time_t90 = {fmt(mix.get('t_90'))}\n"
-        f"# mixing_time_t95 = {fmt(mix.get('t_95'))}\n"
-        f"# mixing_time_t99 = {fmt(mix.get('t_99'))}\n"
-        f"# quantification_rule = TBD  "
-        f"(grand_delta_e / max_cell_delta_e / combined)\n"
+        f"# mixing_time_t90 = {_fmt(mix.get('t_90'))}\n"
+        f"# mixing_time_t95 = {_fmt(mix.get('t_95'))}\n"
+        f"# mixing_time_t99 = {_fmt(mix.get('t_99'))}\n"
+        f"# rule = max(T_deltaE, T_spatial, T_texture)\n"
     )
-    existing = csv_path.read_text()
-    csv_path.write_text(header + existing)
+    csv_path.write_text(header + csv_path.read_text())
 
 
 # ---------------------------------------------------------------------------
