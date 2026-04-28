@@ -48,3 +48,32 @@ class TestDataExporter:
         exporter = DataExporter()
         exporter.export([], out, fmt="csv")
         assert out.exists()
+
+
+def test_export_with_mixing_result_writes_summary_csv(tmp_path):
+    from src.core.export import DataExporter
+    from src.core.mixing_time import MixingTimeResult
+
+    res = MixingTimeResult(t_start_s=0.5, levels=(0.90, 0.95, 0.99))
+    res.t_mix = {0.95: 7.0, 0.90: 5.0, 0.99: 9.0}
+    res.t_deltaE = {0.95: 6.0}
+    res.t_spatial = {0.95: 7.0}
+    res.t_texture = {0.95: 8.0}
+
+    out = tmp_path / "results.csv"
+    rows = [
+        {
+            "frame_number": 0, "timestamp": 0.0, "grand_delta_e": 1.0,
+            "contact_perimeter": 1.0, "contrast": 1.0, "homogeneity": 1.0,
+            "energy": 1.0, "variance_r": 0.0, "variance_g": 0.0,
+            "variance_b": 0.0, "variance_l": 0.0, "variance_a": 0.0,
+            "variance_b_star": 0.0, "variance_delta_e": 0.0,
+        }
+    ]
+    DataExporter().export(rows, out, fmt="csv", mixing_result=res)
+    assert out.exists()
+    summary = tmp_path / "results_mixing_summary.csv"
+    assert summary.exists()
+    header = summary.read_text().split("\n")[0]
+    assert "t_mix_95_s" in header
+    assert "t_start_s" in header

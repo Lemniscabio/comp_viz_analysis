@@ -375,7 +375,10 @@ class MainWindow(QMainWindow):
         if path:
             results_snapshot = list(self._worker.engine.results)
             exporter = DataExporter()
-            exporter.export(results_snapshot, path, fmt=fmt)
+            exporter.export(
+                results_snapshot, path, fmt=fmt,
+                mixing_result=getattr(self, "_latest_mixing_result", None),
+            )
 
             # Save plots snapshot alongside the data file
             plots_path = Path(path).with_suffix(".png")

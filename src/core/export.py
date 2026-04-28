@@ -37,8 +37,13 @@ class DataExporter:
             enriched.append(new_row)
         return enriched
 
-    def export(self, results: List[Dict[str, Any]], output_path: Union[Path, str],
-               fmt: str = "csv") -> None:
+    def export(
+        self,
+        results: List[Dict[str, Any]],
+        output_path: Union[Path, str],
+        fmt: str = "csv",
+        mixing_result=None,
+    ) -> None:
         output_path = Path(output_path)
         enriched = self._add_normalized_delta_e(results)
         if fmt == "csv":
@@ -47,6 +52,22 @@ class DataExporter:
             self._export_xlsx(enriched, output_path)
         else:
             raise ValueError(f"Unsupported format: {fmt}")
+
+        if mixing_result is not None:
+            from src.core.batch import write_summary_row
+            summary_path = output_path.with_name(
+                output_path.stem + "_mixing_summary.csv"
+            )
+            write_summary_row(
+                summary_path,
+                video_file=output_path.name,
+                fps=0.0,
+                duration_s=0.0,
+                frame_count=len(results),
+                roi=None,
+                result=mixing_result,
+                append=False,
+            )
         logger.info(f"Exported {len(enriched)} rows to {output_path}")
 
     def _export_csv(self, results: List[Dict[str, Any]], path: Path) -> None:
