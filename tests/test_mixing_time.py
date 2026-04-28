@@ -144,3 +144,49 @@ def test_spatial_time_one_lagging_cell_dominates():
     out = compute_spatial_time(t, cells, level=0.95, t_start=0.0)
     # Slow cell needs ~3*8=24s to reach 95%
     assert out["t_cell"] > 18.0
+
+
+from src.core.mixing_time import (
+    MixingTimeParams, MixingTimeResult, compute_mixing_time,
+)
+
+
+def _synth_results(t_end=30.0, fs=30, n_cells=25, lag_per_cell=0.0):
+    """Build a list of dict rows shaped like AnalysisEngine.results."""
+    t = np.linspace(0, t_end, int(t_end * fs) + 1)
+    rows = []
+    for i, ti in enumerate(t):
+        cell_avg = np.array(
+            [30 * (1 - np.exp(-(ti) / (2.0 + lag_per_cell * j))) for j in range(n_cells)]
+        )
+        rows.append({
+            "frame_number": i,
+            "timestamp": float(ti),
+            "grand_delta_e": float(np.mean(cell_avg)),
+            "contact_perimeter": float(5 + 20 * np.exp(-((ti - 8) ** 2) / 4.5)),
+            "contrast": float(2 + 8 * np.exp(-((ti - 6) ** 2) / 6.0)),
+            "homogeneity": 0.9, "energy": 0.5,
+            "variance_delta_e": 0.0,
+            "cell_avg": cell_avg,
+            "row_avg": np.zeros(5), "col_avg": np.zeros(5),
+        })
+    return rows
+
+
+def test_compute_mixing_time_returns_max_of_components():
+    rows = _synth_results(lag_per_cell=0.05)
+    res = compute_mixing_time(rows, MixingTimeParams())
+    assert isinstance(res, MixingTimeResult)
+    assert np.isfinite(res.t_mix_95)
+    # t_mix_95 must be >= each finite component (use NaN-safe max behavior)
+    components = [res.t_deltaE.get(0.95), res.t_spatial.get(0.95), res.t_texture.get(0.95)]
+    finite = [c for c in components if np.isfinite(c)]
+    assert finite, "expected at least one finite component"
+    assert res.t_mix_95 >= max(finite) - 1e-6
+    assert res.confidence in {"high", "medium", "low"}
+
+
+def test_compute_mixing_time_video_too_short_marks_no_plateau():
+    rows = _synth_results(t_end=4.0)  # never plateaus
+    res = compute_mixing_time(rows, MixingTimeParams())
+    assert "no stable plateau" in res.status.lower() or not np.isfinite(res.t_mix_95)

@@ -377,3 +377,216 @@ def compute_spatial_time(
         "t_spatial": float(t_spatial) if np.isfinite(t_spatial) else np.nan,
         "n_valid_cells": len(valid_cells),
     }
+
+
+@dataclass
+class MixingTimeParams:
+    levels: Tuple[float, ...] = (0.90, 0.95, 0.99)
+    auto_detect_start: bool = True
+    manual_t_start_s: Optional[float] = None
+    smooth_window_s: float = DEFAULT_SMOOTH_WINDOW_S
+    tail_fraction: float = DEFAULT_TAIL_FRACTION
+    hold_duration_s: float = DEFAULT_HOLD_DURATION_S
+    deltaE_min_amplitude: float = DEFAULT_DELTAE_MIN_AMPLITUDE
+    cell_min_amplitude: float = DEFAULT_CELL_DELTAE_MIN_AMPLITUDE
+    include_energy_homogeneity: bool = False
+    start_sigma_mult: float = DEFAULT_START_SIGMA_MULT
+
+
+@dataclass
+class MixingTimeResult:
+    t_start_s: float
+    levels: Tuple[float, ...]
+    t_deltaE: Dict[float, float] = field(default_factory=dict)
+    t_cell: Dict[float, float] = field(default_factory=dict)
+    t_variance: Dict[float, float] = field(default_factory=dict)
+    t_spatial: Dict[float, float] = field(default_factory=dict)
+    t_contact: Dict[float, float] = field(default_factory=dict)
+    t_contrast: Dict[float, float] = field(default_factory=dict)
+    t_energy: Dict[float, float] = field(default_factory=dict)
+    t_homogeneity: Dict[float, float] = field(default_factory=dict)
+    t_texture: Dict[float, float] = field(default_factory=dict)
+    t_mix: Dict[float, float] = field(default_factory=dict)
+    amplitudes: Dict[str, float] = field(default_factory=dict)
+    tail_slopes: Dict[str, float] = field(default_factory=dict)
+    n_valid_cells: int = 0
+    status: str = "ok"
+    notes: List[str] = field(default_factory=list)
+    confidence: str = "high"
+
+    @property
+    def t_mix_95(self) -> float:
+        return self.t_mix.get(0.95, float("nan"))
+
+    @property
+    def t_mix_90(self) -> float:
+        return self.t_mix.get(0.90, float("nan"))
+
+    @property
+    def t_mix_99(self) -> float:
+        return self.t_mix.get(0.99, float("nan"))
+
+
+def _stack_cells(rows: List[dict]) -> np.ndarray:
+    arrs = [np.asarray(r["cell_avg"], dtype=np.float64) for r in rows
+            if "cell_avg" in r and r["cell_avg"] is not None]
+    if not arrs:
+        return np.zeros((0, 0))
+    n = max(a.size for a in arrs)
+    out = np.full((len(arrs), n), np.nan)
+    for i, a in enumerate(arrs):
+        out[i, : a.size] = a
+    return out
+
+
+def compute_mixing_time(
+    results: List[dict],
+    params: Optional[MixingTimeParams] = None,
+) -> MixingTimeResult:
+    """Compute T_mix and component times from engine.results.
+
+    Inputs are absolute timestamps; outputs are relative to detected (or manual)
+    t_start. Returns a fully populated MixingTimeResult, with NaNs and notes
+    for components that could not be computed.
+    """
+    params = params or MixingTimeParams()
+    notes: List[str] = []
+
+    if len(results) < 10:
+        return MixingTimeResult(
+            t_start_s=0.0, levels=params.levels, status="too_few_frames",
+            notes=["fewer than 10 frames — cannot compute mixing time"],
+            confidence="low",
+        )
+
+    t = np.array([r["timestamp"] for r in results], dtype=np.float64)
+    grand = np.array([r["grand_delta_e"] for r in results], dtype=np.float64)
+    contact = np.array([r["contact_perimeter"] for r in results], dtype=np.float64)
+    contrast = np.array([r["contrast"] for r in results], dtype=np.float64)
+    energy = np.array([r["energy"] for r in results], dtype=np.float64)
+    homog = np.array([r["homogeneity"] for r in results], dtype=np.float64)
+
+    if params.auto_detect_start:
+        t_start = detect_start_time(
+            t, grand,
+            sigma_mult=params.start_sigma_mult,
+            smooth_window_s=params.smooth_window_s,
+        )
+    else:
+        t_start = params.manual_t_start_s if params.manual_t_start_s is not None else float(t[0])
+
+    res = MixingTimeResult(t_start_s=t_start, levels=params.levels)
+    cells = _stack_cells(results)
+
+    grand_smoothed = smooth_series(t, grand, window_s=params.smooth_window_s)
+    plat_de = estimate_plateau(t, grand_smoothed, tail_fraction=params.tail_fraction)
+    res.amplitudes["grand_delta_e"] = float(plat_de.amplitude)
+    plat_contact = estimate_plateau(
+        t, smooth_series(t, contact, window_s=params.smooth_window_s),
+        tail_fraction=params.tail_fraction,
+    )
+    plat_contrast = estimate_plateau(
+        t, smooth_series(t, contrast, window_s=params.smooth_window_s),
+        tail_fraction=params.tail_fraction,
+    )
+    res.amplitudes["contact"] = float(plat_contact.amplitude)
+    res.amplitudes["contrast"] = float(plat_contrast.amplitude)
+    res.tail_slopes["grand_delta_e"] = plat_de.tail_slope
+    res.tail_slopes["contact"] = plat_contact.tail_slope
+    res.tail_slopes["contrast"] = plat_contrast.tail_slope
+
+    if not plat_de.stable:
+        notes.append("Grand Delta-E tail not stable — video may end before plateau")
+
+    for L in params.levels:
+        t_de = compute_plateau_time(
+            t, grand, level=L, t_start=t_start, mode="monotonic",
+            smooth_window_s=params.smooth_window_s,
+            tail_fraction=params.tail_fraction,
+            hold_duration_s=params.hold_duration_s,
+            min_amplitude=params.deltaE_min_amplitude,
+        )
+        res.t_deltaE[L] = float(t_de)
+
+        spatial = compute_spatial_time(
+            t, cells, level=L, t_start=t_start,
+            smooth_window_s=params.smooth_window_s,
+            tail_fraction=params.tail_fraction,
+            hold_duration_s=params.hold_duration_s,
+            min_cell_amplitude=params.cell_min_amplitude,
+        )
+        res.t_cell[L] = spatial["t_cell"]
+        res.t_variance[L] = spatial["t_variance"]
+        res.t_spatial[L] = spatial["t_spatial"]
+        res.n_valid_cells = spatial["n_valid_cells"]
+
+        t_contact = compute_plateau_time(
+            t, contact, level=L, t_start=t_start, mode="non_monotonic",
+            smooth_window_s=params.smooth_window_s,
+            tail_fraction=params.tail_fraction,
+            hold_duration_s=params.hold_duration_s,
+        )
+        t_contrast = compute_plateau_time(
+            t, contrast, level=L, t_start=t_start, mode="non_monotonic",
+            smooth_window_s=params.smooth_window_s,
+            tail_fraction=params.tail_fraction,
+            hold_duration_s=params.hold_duration_s,
+        )
+        t_energy = compute_plateau_time(
+            t, energy, level=L, t_start=t_start, mode="non_monotonic",
+            smooth_window_s=params.smooth_window_s,
+            tail_fraction=params.tail_fraction,
+            hold_duration_s=params.hold_duration_s,
+        )
+        t_homog = compute_plateau_time(
+            t, homog, level=L, t_start=t_start, mode="non_monotonic",
+            smooth_window_s=params.smooth_window_s,
+            tail_fraction=params.tail_fraction,
+            hold_duration_s=params.hold_duration_s,
+        )
+        res.t_contact[L] = float(t_contact)
+        res.t_contrast[L] = float(t_contrast)
+        res.t_energy[L] = float(t_energy)
+        res.t_homogeneity[L] = float(t_homog)
+
+        gates = [t_contact, t_contrast]
+        if params.include_energy_homogeneity:
+            gates += [t_energy, t_homog]
+        finite_gates = [g for g in gates if np.isfinite(g)]
+        t_texture = max(finite_gates) if finite_gates else np.nan
+        res.t_texture[L] = float(t_texture)
+
+        components = [t_de, spatial["t_spatial"], t_texture]
+        finite = [c for c in components if np.isfinite(c)]
+        if not finite:
+            res.t_mix[L] = float("nan")
+        else:
+            res.t_mix[L] = float(max(finite))
+            if len(finite) < len(components):
+                notes.append(f"L={L}: some components NaN — t_mix is max of available")
+
+    L = 0.95
+    bulk_ok = np.isfinite(res.t_deltaE.get(L, np.nan))
+    spatial_ok = np.isfinite(res.t_spatial.get(L, np.nan))
+    texture_ok = np.isfinite(res.t_texture.get(L, np.nan))
+    plateau_ok = plat_de.stable
+    n_ok = sum([bulk_ok, spatial_ok, texture_ok])
+
+    if n_ok == 3 and plateau_ok and res.n_valid_cells >= 6:
+        finite = [res.t_deltaE[L], res.t_spatial[L], res.t_texture[L]]
+        spread = (max(finite) - min(finite)) / max(finite) if max(finite) > 0 else 0
+        if spread < 0.5:
+            res.confidence = "high"
+        else:
+            res.confidence = "medium"
+            notes.append("components disagree by >50% — confidence reduced")
+    elif n_ok >= 2 and plateau_ok:
+        res.confidence = "medium"
+    else:
+        res.confidence = "low"
+
+    if not plateau_ok:
+        res.status = "no stable plateau"
+
+    res.notes = notes
+    return res
