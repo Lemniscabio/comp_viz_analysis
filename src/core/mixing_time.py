@@ -138,3 +138,51 @@ def detect_start_time(
         else:
             run = 0
     return float(t[0])
+
+
+@dataclass
+class PlateauEstimate:
+    y_inf: float
+    amplitude: float
+    tail_slope: float            # raw slope (units/s)
+    normalized_tail_slope: float # |slope| * tail_duration / amplitude
+    stable: bool                 # normalized_tail_slope <= threshold
+    tail_start_idx: int
+
+
+def estimate_plateau(
+    t: np.ndarray,
+    y: np.ndarray,
+    *,
+    tail_fraction: float = DEFAULT_TAIL_FRACTION,
+    slope_max: float = DEFAULT_TAIL_SLOPE_MAX,
+) -> PlateauEstimate:
+    """Estimate y_inf as median of final tail, plus a stability check.
+
+    amplitude is max |y - y_inf| over the trace.
+    Stability: |a| * tail_duration / amplitude <= slope_max.
+    """
+    t = np.asarray(t, dtype=np.float64)
+    y = np.asarray(y, dtype=np.float64)
+    n = len(t)
+    if n < 5:
+        return PlateauEstimate(float(y[-1]) if n else 0.0, 0.0, 0.0, 0.0, False, 0)
+
+    tail_n = max(3, int(round(tail_fraction * n)))
+    tail_start = n - tail_n
+    y_inf = float(np.median(y[tail_start:]))
+    amplitude = float(np.nanmax(np.abs(y - y_inf)))
+    if amplitude <= 0:
+        return PlateauEstimate(y_inf, 0.0, 0.0, 0.0, False, tail_start)
+
+    a, _b = np.polyfit(t[tail_start:], y[tail_start:], 1)
+    tail_duration = t[-1] - t[tail_start]
+    norm_slope = abs(a) * tail_duration / amplitude
+    return PlateauEstimate(
+        y_inf=y_inf,
+        amplitude=amplitude,
+        tail_slope=float(a),
+        normalized_tail_slope=float(norm_slope),
+        stable=bool(norm_slope <= slope_max),
+        tail_start_idx=tail_start,
+    )

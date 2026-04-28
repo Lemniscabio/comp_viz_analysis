@@ -51,3 +51,21 @@ def test_detect_start_time_no_change_returns_zero():
     y = np.random.RandomState(0).randn(len(t)) * 0.01
     t_start = detect_start_time(t, y)
     assert t_start == t[0]
+
+
+from src.core.mixing_time import estimate_plateau
+
+
+def test_plateau_stable_curve():
+    t = np.linspace(0, 30, 3001)
+    y = 30 * (1 - np.exp(-t / 3.0))
+    res = estimate_plateau(t, y, tail_fraction=0.2)
+    assert abs(res.y_inf - 30.0) < 0.5
+    assert res.stable is True
+
+
+def test_plateau_unstable_when_still_rising():
+    t = np.linspace(0, 5, 501)
+    y = 5 * t  # linear, never plateaus
+    res = estimate_plateau(t, y, tail_fraction=0.2)
+    assert res.stable is False
