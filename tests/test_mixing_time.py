@@ -69,3 +69,53 @@ def test_plateau_unstable_when_still_rising():
     y = 5 * t  # linear, never plateaus
     res = estimate_plateau(t, y, tail_fraction=0.2)
     assert res.stable is False
+
+
+from src.core.mixing_time import compute_plateau_time
+
+
+def _exp_curve(tau, t_end=30.0, fs=100):
+    t = np.linspace(0, t_end, int(t_end * fs) + 1)
+    y = 30 * (1 - np.exp(-t / tau))
+    return t, y
+
+
+def test_monotonic_T95_close_to_3tau():
+    t, y = _exp_curve(2.0)
+    out = compute_plateau_time(t, y, level=0.95, t_start=0.0, mode="monotonic")
+    # 1 - exp(-T/tau) >= 0.95 -> T >= 3*tau = 6.0
+    assert 5.5 < out < 7.5
+
+
+def test_non_monotonic_returns_after_excursion():
+    t = np.linspace(0, 30, 3001)
+    # contact-like: start at 5, peak ~25 around t=8, settle back to ~5
+    y = 5 + 20 * np.exp(-((t - 8) ** 2) / (2 * 1.5 ** 2))
+    out = compute_plateau_time(t, y, level=0.95, t_start=0.0, mode="non_monotonic")
+    assert out > 9.0
+
+
+def test_brief_false_crossing_ignored_by_hold():
+    t = np.linspace(0, 30, 3001)
+    y = 30 * (1 - np.exp(-t / 2.0))
+    y[399:401] = 35.0  # brief spike above plateau
+    out = compute_plateau_time(
+        t, y, level=0.95, t_start=0.0, mode="monotonic", hold_duration_s=2.0
+    )
+    assert out > 5.5
+
+
+def test_weak_signal_returns_nan():
+    t = np.linspace(0, 30, 3001)
+    y = 0.05 * np.sin(t) + 100.0
+    out = compute_plateau_time(
+        t, y, level=0.95, t_start=0.0, mode="monotonic", min_amplitude=3.0
+    )
+    assert np.isnan(out)
+
+
+def test_no_plateau_returns_nan():
+    t = np.linspace(0, 5, 501)
+    y = 5 * t
+    out = compute_plateau_time(t, y, level=0.95, t_start=0.0, mode="monotonic")
+    assert np.isnan(out)

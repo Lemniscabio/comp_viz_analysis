@@ -186,3 +186,88 @@ def estimate_plateau(
         stable=bool(norm_slope <= slope_max),
         tail_start_idx=tail_start,
     )
+
+
+def compute_plateau_time(
+    t: np.ndarray,
+    y: np.ndarray,
+    *,
+    level: float,
+    t_start: float,
+    mode: str = "monotonic",                   # or "non_monotonic"
+    smooth_window_s: float = DEFAULT_SMOOTH_WINDOW_S,
+    tail_fraction: float = DEFAULT_TAIL_FRACTION,
+    slope_max: float = DEFAULT_TAIL_SLOPE_MAX,
+    hold_duration_s: Optional[float] = None,
+    hold_fraction: float = DEFAULT_HOLD_FRACTION,
+    min_amplitude: float = 0.0,
+    return_diagnostics: bool = False,
+):
+    """First sustained time after the dominant excursion where R(t) <= 1 - level.
+
+    R(t) = |y - y_inf| / amplitude.
+
+    For non_monotonic metrics (Contact/Contrast/Variance), search starts at
+    argmax(R) so the algorithm cannot pick t=0 when y already starts near y_inf.
+    Returns NaN if plateau is unstable, signal is weak, or video ends before
+    threshold is satisfied for hold_duration_s.
+
+    Returns time relative to t_start (seconds). If return_diagnostics, also
+    returns a dict.
+    """
+    t = np.asarray(t, dtype=np.float64)
+    y = np.asarray(y, dtype=np.float64)
+    if len(t) < 5:
+        return (np.nan, {}) if return_diagnostics else np.nan
+
+    ys = smooth_series(t, y, window_s=smooth_window_s)
+    plateau = estimate_plateau(t, ys, tail_fraction=tail_fraction, slope_max=slope_max)
+
+    diag: Dict[str, float] = {
+        "y_inf": plateau.y_inf,
+        "amplitude": plateau.amplitude,
+        "tail_slope": plateau.tail_slope,
+        "normalized_tail_slope": plateau.normalized_tail_slope,
+        "stable": plateau.stable,
+        "weak_signal": plateau.amplitude < min_amplitude,
+        "no_plateau": not plateau.stable,
+    }
+
+    if not plateau.stable or plateau.amplitude < max(min_amplitude, 1e-12):
+        return (np.nan, diag) if return_diagnostics else np.nan
+
+    R = np.abs(ys - plateau.y_inf) / plateau.amplitude
+    threshold = 1.0 - level
+
+    start_idx = int(np.searchsorted(t, t_start))
+    if mode == "non_monotonic":
+        seg = R[start_idx:]
+        if len(seg) == 0:
+            return (np.nan, diag) if return_diagnostics else np.nan
+        peak_offset = int(np.argmax(seg))
+        search_start = start_idx + peak_offset
+        diag["t_peak"] = float(t[search_start])
+    else:
+        search_start = start_idx
+
+    duration_after = t[-1] - t[search_start] if search_start < len(t) else 0.0
+    hold_s = hold_duration_s if hold_duration_s is not None else max(
+        DEFAULT_HOLD_DURATION_S, hold_fraction * duration_after
+    )
+    fps = _frames_per_second(t)
+    hold_frames = max(1, int(round(hold_s * fps)))
+
+    below = R <= threshold
+    run = 0
+    for i in range(search_start, len(R)):
+        if below[i]:
+            run += 1
+            if run >= hold_frames:
+                t_abs = t[i - hold_frames + 1]
+                rel = float(t_abs - t_start)
+                diag["t_abs"] = float(t_abs)
+                return (rel, diag) if return_diagnostics else rel
+        else:
+            run = 0
+
+    return (np.nan, diag) if return_diagnostics else np.nan
