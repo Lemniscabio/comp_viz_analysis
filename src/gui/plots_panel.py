@@ -32,6 +32,8 @@ class PlotsPanel(QWidget):
         }
         self._row_avg_data: List[np.ndarray] = []
         self._col_avg_data: List[np.ndarray] = []
+        self._grid_rows: int = 5
+        self._grid_cols: int = 5
 
         main_layout = QVBoxLayout(self)
 
@@ -61,21 +63,20 @@ class PlotsPanel(QWidget):
         self._plot_energy = pg.PlotWidget(title="Energy / ASM")
         self._plot_homogeneity = pg.PlotWidget(title="Homogeneity")
         self._plot_contact = pg.PlotWidget(title="Contact")
-        self._plot_variance = pg.PlotWidget(title="Variance")
+        self._plot_cell_grid = pg.PlotWidget(title="Per-Cell Delta-E Grid")
 
         grid.addWidget(self._plot_de, 0, 0)
         grid.addWidget(self._plot_contrast, 0, 1)
         grid.addWidget(self._plot_energy, 1, 0)
         grid.addWidget(self._plot_homogeneity, 1, 1)
         grid.addWidget(self._plot_contact, 2, 0)
-        grid.addWidget(self._plot_variance, 2, 1)
+        grid.addWidget(self._plot_cell_grid, 2, 1)
 
         self._plot_de.setLabel("left", "Delta-E (perceptual units)")
         self._plot_contrast.setLabel("left", "Contrast (a.u.)")
         self._plot_energy.setLabel("left", "Energy (0-1)")
         self._plot_homogeneity.setLabel("left", "Homogeneity (0-1)")
         self._plot_contact.setLabel("left", "Contact (edge count)")
-        self._plot_variance.setLabel("left", "Variance (a.u.)")
 
         for plot in [
             self._plot_de,
@@ -83,10 +84,16 @@ class PlotsPanel(QWidget):
             self._plot_energy,
             self._plot_homogeneity,
             self._plot_contact,
-            self._plot_variance,
         ]:
             plot.setLabel("bottom", "Time", units="s")
             plot.showGrid(x=True, y=True, alpha=0.3)
+
+        self._plot_cell_grid.hideAxis("left")
+        self._plot_cell_grid.hideAxis("bottom")
+        self._plot_cell_grid.setAspectLocked(True)
+        self._plot_cell_grid.invertY(True)
+        self._plot_cell_grid.setMouseEnabled(x=False, y=False)
+        self._plot_cell_grid.setMenuEnabled(False)
 
         self._curve_de = self._plot_de.plot(pen="y", name="Grand Delta-E")
         self._de_extra_curves: List[pg.PlotDataItem] = []
@@ -106,22 +113,11 @@ class PlotsPanel(QWidget):
         self._curve_homogeneity = self._plot_homogeneity.plot(pen="g")
         self._curve_contact = self._plot_contact.plot(pen="r")
 
-        variance_colors = [
-            "r", "g", "b",
-            (200, 200, 200), (255, 165, 0), (128, 0, 128), "y",
-        ]
-        variance_names = ["R", "G", "B", "L*", "a*", "b*", "Delta-E"]
-        self._variance_keys = [
-            "variance_r", "variance_g", "variance_b",
-            "variance_l", "variance_a", "variance_b_star", "variance_delta_e",
-        ]
-        self._variance_curves = []
-        self._plot_variance.addLegend(offset=(10, 10))
-        for color, name in zip(variance_colors, variance_names):
-            curve = self._plot_variance.plot(
-                pen=pg.mkPen(color, width=1), name=name
-            )
-            self._variance_curves.append(curve)
+        self._cell_grid_cmap = pg.colormap.get("viridis")
+        self._cell_grid_rects: List[Any] = []
+        self._cell_grid_labels: List[pg.TextItem] = []
+        self._cell_grid_shape: tuple = (0, 0)
+        self._cell_grid_padding: float = 0.12
 
     def append_data(
         self,
@@ -129,6 +125,7 @@ class PlotsPanel(QWidget):
         timestamp: float,
         row_avg: Any = None,
         col_avg: Any = None,
+        cell_avg: Any = None,
     ) -> None:
         """Append one frame's metrics to all plots."""
         self._timestamps.append(timestamp)
@@ -149,10 +146,76 @@ class PlotsPanel(QWidget):
         self._curve_homogeneity.setData(t, np.array(self._data["homogeneity"]))
         self._curve_contact.setData(t, np.array(self._data["contact_perimeter"]))
 
-        for curve, key in zip(self._variance_curves, self._variance_keys):
-            curve.setData(t, np.array(self._data[key]))
+        if cell_avg is not None:
+            self._update_cell_grid(np.asarray(cell_avg, dtype=float))
 
         self._update_de_plot()
+
+    def _update_cell_grid(self, cell_avg: np.ndarray) -> None:
+        """Render per-cell Delta-E as a heatmap grid with numeric labels."""
+        rows, cols = self._grid_rows, self._grid_cols
+        if cell_avg.size != rows * cols:
+            return
+        grid = cell_avg.reshape(rows, cols)
+
+        valid = grid[~np.isnan(grid)]
+        if valid.size == 0:
+            return
+        vmin = float(valid.min())
+        vmax = float(valid.max())
+        denom = vmax - vmin if vmax > vmin else 1.0
+
+        if self._cell_grid_shape != (rows, cols):
+            self._rebuild_cell_grid(rows, cols)
+
+        pad = self._cell_grid_padding
+        size = 1.0 - 2.0 * pad
+        for r in range(rows):
+            for c in range(cols):
+                idx = r * cols + c
+                v = grid[r, c]
+                rect = self._cell_grid_rects[idx]
+                lbl = self._cell_grid_labels[idx]
+                if np.isnan(v):
+                    rect.setBrush(pg.mkBrush(60, 60, 60))
+                    lbl.setText("—")
+                    lbl.setColor("w")
+                else:
+                    norm = (v - vmin) / denom
+                    color = self._cell_grid_cmap.map(norm, mode="qcolor")
+                    rect.setBrush(pg.mkBrush(color))
+                    lbl.setText(f"{v:.1f}")
+                    # Light text on dark cells, dark text on light cells.
+                    lbl.setColor("w" if norm < 0.55 else "k")
+                rect.setRect(c + pad, r + pad, size, size)
+                lbl.setPos(c + 0.5, r + 0.5)
+
+    def _rebuild_cell_grid(self, rows: int, cols: int) -> None:
+        """Tear down and recreate the per-cell rect + label items."""
+        from PyQt6.QtWidgets import QGraphicsRectItem
+
+        for rect in self._cell_grid_rects:
+            self._plot_cell_grid.removeItem(rect)
+        for lbl in self._cell_grid_labels:
+            self._plot_cell_grid.removeItem(lbl)
+        self._cell_grid_rects = []
+        self._cell_grid_labels = []
+
+        pen = pg.mkPen(None)
+        for r in range(rows):
+            for c in range(cols):
+                rect = QGraphicsRectItem(0, 0, 1, 1)
+                rect.setPen(pen)
+                self._plot_cell_grid.addItem(rect)
+                self._cell_grid_rects.append(rect)
+
+                lbl = pg.TextItem(anchor=(0.5, 0.5), color="w")
+                self._plot_cell_grid.addItem(lbl)
+                self._cell_grid_labels.append(lbl)
+
+        self._plot_cell_grid.setXRange(0, cols, padding=0.05)
+        self._plot_cell_grid.setYRange(0, rows, padding=0.05)
+        self._cell_grid_shape = (rows, cols)
 
     def _normalize(self, values: np.ndarray) -> np.ndarray:
         """Normalize values to 0-1 range if checkbox is checked."""
@@ -247,11 +310,19 @@ class PlotsPanel(QWidget):
             self._curve_contact,
         ]:
             curve.setData([], [])
-        for curve in self._variance_curves:
-            curve.setData([], [])
+        for lbl in self._cell_grid_labels:
+            lbl.setText("")
+        for rect in self._cell_grid_rects:
+            rect.setBrush(pg.mkBrush(40, 40, 40))
         for c in self._de_extra_curves:
             self._plot_de.removeItem(c)
         self._de_extra_curves.clear()
+
+    def set_grid_shape(self, rows: int, cols: int) -> None:
+        """Set the spatial grid dimensions for the per-cell Delta-E view."""
+        self._grid_rows = rows
+        self._grid_cols = cols
+        self._rebuild_cell_grid(rows, cols)
 
     def enable_normalize(self, enabled: bool) -> None:
         """Enable/disable the normalize checkbox. Unchecks when disabled."""

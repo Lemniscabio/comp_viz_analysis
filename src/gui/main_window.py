@@ -245,8 +245,10 @@ class MainWindow(QMainWindow):
             return
 
         config = self._controls.get_config()
-        grid_size = config["grid_rows"]
-        self._video_panel.set_grid_size(grid_size, grid_size)
+        grid_rows = config["grid_rows"]
+        grid_cols = config["grid_cols"]
+        self._video_panel.set_grid_size(grid_rows, grid_cols)
+        self._plots_panel.set_grid_shape(grid_rows, grid_cols)
         self._plots_panel.clear_data()
         self._plots_panel.enable_normalize(False)
 
@@ -294,9 +296,10 @@ class MainWindow(QMainWindow):
         )
         row_avg = metrics.get("row_avg")
         col_avg = metrics.get("col_avg")
+        cell_avg = metrics.get("cell_avg")
         self._plots_panel.append_data(
             metrics, metrics.get("timestamp", 0.0),
-            row_avg=row_avg, col_avg=col_avg,
+            row_avg=row_avg, col_avg=col_avg, cell_avg=cell_avg,
         )
 
     def _on_progress(self, current: int, total: int) -> None:

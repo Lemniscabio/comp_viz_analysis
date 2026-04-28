@@ -176,6 +176,7 @@ class AnalysisEngine:
         full_row["pixel_delta_e"] = de_result["pixel_delta_e"]
         full_row["row_avg"] = de_result["row_avg"]
         full_row["col_avg"] = de_result["col_avg"]
+        full_row["cell_avg"] = de_result["cell_avg"]
         self._analyzed_frame_count += 1
 
         t_total = time.perf_counter() - t_start
