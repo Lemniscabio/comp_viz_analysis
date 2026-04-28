@@ -119,3 +119,28 @@ def test_no_plateau_returns_nan():
     y = 5 * t
     out = compute_plateau_time(t, y, level=0.95, t_start=0.0, mode="monotonic")
     assert np.isnan(out)
+
+
+from src.core.mixing_time import compute_spatial_time
+
+
+def test_spatial_time_synced_cells():
+    t = np.linspace(0, 30, 3001)
+    n_cells = 25
+    cells = np.zeros((len(t), n_cells))
+    for j in range(n_cells):
+        tau = 2.0 + 0.05 * j
+        cells[:, j] = 30 * (1 - np.exp(-t / tau))
+    out = compute_spatial_time(t, cells, level=0.95, t_start=0.0)
+    assert np.isfinite(out["t_spatial"])
+    assert out["t_spatial"] > 5.0
+
+
+def test_spatial_time_one_lagging_cell_dominates():
+    t = np.linspace(0, 30, 3001)
+    n_cells = 25
+    cells = np.tile((30 * (1 - np.exp(-t / 2.0)))[:, None], (1, n_cells))
+    cells[:, 0] = 30 * (1 - np.exp(-t / 8.0))  # one slow cell
+    out = compute_spatial_time(t, cells, level=0.95, t_start=0.0)
+    # Slow cell needs ~3*8=24s to reach 95%
+    assert out["t_cell"] > 18.0

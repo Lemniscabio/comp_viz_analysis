@@ -271,3 +271,109 @@ def compute_plateau_time(
             run = 0
 
     return (np.nan, diag) if return_diagnostics else np.nan
+
+
+def compute_spatial_time(
+    t: np.ndarray,
+    cell_de_series: np.ndarray,         # shape (n_frames, n_cells), NaN ok
+    *,
+    level: float,
+    t_start: float,
+    smooth_window_s: float = DEFAULT_SMOOTH_WINDOW_S,
+    tail_fraction: float = DEFAULT_TAIL_FRACTION,
+    slope_max: float = DEFAULT_TAIL_SLOPE_MAX,
+    hold_duration_s: Optional[float] = None,
+    hold_fraction: float = DEFAULT_HOLD_FRACTION,
+    min_cell_amplitude: float = DEFAULT_CELL_DELTAE_MIN_AMPLITUDE,
+    slow_percentile: float = 5.0,
+) -> Dict[str, float]:
+    """Spatial mixing time: max(T_cell, T_var).
+
+    T_cell: first sustained time the slow-percentile of normalized cell progress
+            P_j(t) reaches `level`.
+    T_var:  first sustained time after argmax(V) that V(t) <= (1-level)^2.
+    """
+    t = np.asarray(t, dtype=np.float64)
+    cells = np.asarray(cell_de_series, dtype=np.float64)
+    if cells.ndim != 2 or cells.shape[0] != len(t):
+        return {"t_cell": np.nan, "t_variance": np.nan, "t_spatial": np.nan,
+                "n_valid_cells": 0}
+
+    n_frames, n_cells = cells.shape
+    fps = _frames_per_second(t)
+
+    P = np.full_like(cells, np.nan)
+    valid_cells: List[int] = []
+    for j in range(n_cells):
+        col = cells[:, j]
+        finite_frac = np.mean(np.isfinite(col))
+        if finite_frac < 0.5:
+            continue
+        cs = smooth_series(t, col, window_s=smooth_window_s)
+        plateau = estimate_plateau(t, cs, tail_fraction=tail_fraction,
+                                   slope_max=slope_max)
+        if plateau.amplitude < min_cell_amplitude:
+            continue
+        D0 = float(np.nanmedian(cs[: max(3, int(0.05 * n_frames))]))
+        denom = plateau.y_inf - D0
+        if abs(denom) < 1e-9:
+            continue
+        Pj = (cs - D0) / denom
+        Pj = np.clip(Pj, 0.0, 1.0)
+        P[:, j] = Pj
+        valid_cells.append(j)
+
+    if len(valid_cells) < 2:
+        return {"t_cell": np.nan, "t_variance": np.nan, "t_spatial": np.nan,
+                "n_valid_cells": len(valid_cells)}
+
+    Pv = P[:, valid_cells]
+    P_slow = np.nanpercentile(Pv, slow_percentile, axis=1, method="weibull")
+    V = np.nanvar(Pv, axis=1)
+
+    duration_after = max(t[-1] - t_start, 1.0)
+    hold_s = hold_duration_s if hold_duration_s is not None else max(
+        DEFAULT_HOLD_DURATION_S, hold_fraction * duration_after
+    )
+    hold_frames = max(1, int(round(hold_s * fps)))
+    start_idx = int(np.searchsorted(t, t_start))
+
+    above = P_slow >= level
+    t_cell = np.nan
+    run = 0
+    for i in range(start_idx, len(P_slow)):
+        if above[i]:
+            run += 1
+            if run >= hold_frames:
+                t_cell = float(t[i - hold_frames + 1] - t_start)
+                break
+        else:
+            run = 0
+
+    seg = V[start_idx:]
+    if len(seg) == 0 or not np.any(np.isfinite(seg)):
+        t_var = np.nan
+    else:
+        peak_off = int(np.nanargmax(seg))
+        search_start = start_idx + peak_off
+        var_thresh = (1.0 - level) ** 2
+        t_var = np.nan
+        run = 0
+        for i in range(search_start, len(V)):
+            if np.isfinite(V[i]) and V[i] <= var_thresh:
+                run += 1
+                if run >= hold_frames:
+                    t_var = float(t[i - hold_frames + 1] - t_start)
+                    break
+            else:
+                run = 0
+
+    candidates = [c for c in (t_cell, t_var) if np.isfinite(c)]
+    t_spatial = max(candidates) if candidates else np.nan
+
+    return {
+        "t_cell": float(t_cell) if np.isfinite(t_cell) else np.nan,
+        "t_variance": float(t_var) if np.isfinite(t_var) else np.nan,
+        "t_spatial": float(t_spatial) if np.isfinite(t_spatial) else np.nan,
+        "n_valid_cells": len(valid_cells),
+    }
