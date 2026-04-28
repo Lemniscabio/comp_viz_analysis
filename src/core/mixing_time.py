@@ -74,3 +74,67 @@ def smooth_series(
         return stage1
     poly = min(3, win - 1)
     return savgol_filter(stage1, window_length=win, polyorder=poly, mode="interp")
+
+
+def robust_std(x: np.ndarray) -> float:
+    """Median absolute deviation scaled to match Gaussian std."""
+    x = np.asarray(x, dtype=np.float64)
+    x = x[np.isfinite(x)]
+    if len(x) == 0:
+        return 0.0
+    med = np.median(x)
+    return float(1.4826 * np.median(np.abs(x - med)))
+
+
+def detect_start_time(
+    t: np.ndarray,
+    grand_de: np.ndarray,
+    *,
+    sigma_mult: float = DEFAULT_START_SIGMA_MULT,
+    range_frac: float = DEFAULT_START_RANGE_FRAC,
+    hold_s: float = DEFAULT_START_HOLD_S,
+    baseline_frac: float = DEFAULT_BASELINE_FRAC,
+    baseline_max_s: float = DEFAULT_BASELINE_MAX_S,
+    smooth_window_s: float = DEFAULT_SMOOTH_WINDOW_S,
+) -> float:
+    """First sustained departure of grand Delta-E from its baseline.
+
+    Baseline = first min(baseline_frac * duration, baseline_max_s).
+    Returns t[0] if no significant change is detected.
+    """
+    t = np.asarray(t, dtype=np.float64)
+    grand_de = np.asarray(grand_de, dtype=np.float64)
+    if len(t) < 5:
+        return float(t[0]) if len(t) else 0.0
+
+    y = smooth_series(t, grand_de, window_s=smooth_window_s)
+    duration = t[-1] - t[0]
+    base_window = min(max(baseline_frac * duration, 0.5), baseline_max_s)
+    base_end_idx = int(np.searchsorted(t, t[0] + base_window))
+    base_end_idx = max(base_end_idx, 5)
+    base_end_idx = min(base_end_idx, len(y) - 2)
+
+    baseline_med = float(np.median(y[:base_end_idx]))
+    sigma = robust_std(np.diff(grand_de[:base_end_idx]))
+    if sigma <= 0:
+        sigma = robust_std(grand_de[:base_end_idx]) or 1e-6
+
+    total_range = float(np.nanmax(y) - np.nanmin(y))
+    threshold = max(sigma_mult * sigma, range_frac * total_range)
+
+    fps = _frames_per_second(t)
+    hold_frames = max(1, int(round(hold_s * fps)))
+    deviated = np.abs(y - baseline_med) > threshold
+
+    # First index where `deviated` is True for `hold_frames` consecutive samples.
+    if not np.any(deviated):
+        return float(t[0])
+    run = 0
+    for i in range(base_end_idx, len(deviated)):
+        if deviated[i]:
+            run += 1
+            if run >= hold_frames:
+                return float(t[i - hold_frames + 1])
+        else:
+            run = 0
+    return float(t[0])
