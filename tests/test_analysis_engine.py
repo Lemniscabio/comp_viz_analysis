@@ -75,3 +75,18 @@ class TestAnalysisEngine:
         assert len(row["cell_avg"]) == n_cells
         assert len(row["row_avg"]) == config["grid_rows"]
         assert len(row["col_avg"]) == config["grid_cols"]
+
+    def test_finalize_returns_mixing_result(self):
+        config = self._make_config(grid_rows=3, grid_cols=3)
+        engine = AnalysisEngine(config)
+        ref = np.full((50, 50, 3), 100, dtype=np.uint8)
+        engine.set_reference_frame_data(ref)
+        # Generate 60 frames of monotonically growing color difference
+        for i in range(60):
+            val = 100 + min(i * 2, 100)  # saturates after frame 50
+            frame = np.full((50, 50, 3), val, dtype=np.uint8)
+            engine.process_frame(frame, frame_number=i, timestamp=i / 30.0)
+        result = engine.finalize()
+        assert hasattr(result, "t_mix")
+        assert 0.95 in result.t_mix
+        assert hasattr(result, "t_start_s")

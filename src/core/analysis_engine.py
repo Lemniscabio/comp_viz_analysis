@@ -9,6 +9,9 @@ import cv2
 import numpy as np
 
 from src.core.frame_processor import FrameProcessor
+from src.core.mixing_time import (
+    MixingTimeParams, MixingTimeResult, compute_mixing_time,
+)
 from src.core.grid_analyzer import GridAnalyzer
 from src.core.metrics.contact import ContactMetric
 from src.core.metrics.contrast import ContrastMetric
@@ -185,3 +188,9 @@ class AnalysisEngine:
         t_total = time.perf_counter() - t_start
         logger.debug(f"Frame {frame_number}: Total processing time {t_total:.4f}s")
         return full_row
+
+    def finalize(
+        self, params: Optional[MixingTimeParams] = None
+    ) -> MixingTimeResult:
+        """Compute the mixing-time summary for the captured time series."""
+        return compute_mixing_time(self._results, params or MixingTimeParams())
