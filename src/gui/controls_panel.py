@@ -36,6 +36,7 @@ class ControlsPanel(QWidget):
     clear_mask_requested = pyqtSignal()
     view_mode_requested = pyqtSignal()
     config_changed = pyqtSignal(dict)
+    mixing_method_changed = pyqtSignal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -247,6 +248,23 @@ class ControlsPanel(QWidget):
         )
         row4.addWidget(self._chk_include_eh)
 
+        row4.addWidget(QLabel("Method:"))
+        self._combo_method = QComboBox()
+        self._combo_method.setToolTip(
+            "How T_mix is computed:\n"
+            "  default: max(ΔE, Spatial, Texture) — current pipeline\n"
+            "  ΔE only: T_mix = T_deltaE (drop spatial + texture)\n"
+            "  top5/frame: per-frame mean of top-5 cells, normalized,\n"
+            "              first-crossing of the level (no smoothing/hold)"
+        )
+        self._combo_method.addItem("default (max-of-three)", "default")
+        self._combo_method.addItem("ΔE only", "deltaE_only")
+        self._combo_method.addItem("top5 cells/frame", "top5_per_frame")
+        self._combo_method.currentIndexChanged.connect(
+            lambda _i: self.mixing_method_changed.emit()
+        )
+        row4.addWidget(self._combo_method)
+
         self._btn_batch = QPushButton("Batch Analyze Videos")
         self._btn_batch.setToolTip(
             "Run analysis on multiple videos using current ROI/mask/grid as template"
@@ -418,6 +436,7 @@ class ControlsPanel(QWidget):
             tail_fraction=float(self._spin_tail.value()),
             hold_duration_s=float(self._spin_hold.value()),
             include_energy_homogeneity=self._chk_include_eh.isChecked(),
+            method=self._combo_method.currentData() or "default",
         )
 
     def _on_upload(self) -> None:

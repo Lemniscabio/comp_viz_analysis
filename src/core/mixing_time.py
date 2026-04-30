@@ -379,6 +379,11 @@ def compute_spatial_time(
     }
 
 
+METHOD_DEFAULT = "default"           # T_mix = max(ΔE, Spatial, Texture)
+METHOD_DELTAE_ONLY = "deltaE_only"   # T_mix = T_deltaE
+METHOD_TOP5 = "top5_per_frame"       # mean of top-5 cells/frame, normalized first-crossing
+
+
 @dataclass
 class MixingTimeParams:
     levels: Tuple[float, ...] = (0.90, 0.95, 0.99)
@@ -391,6 +396,7 @@ class MixingTimeParams:
     cell_min_amplitude: float = DEFAULT_CELL_DELTAE_MIN_AMPLITUDE
     include_energy_homogeneity: bool = False
     start_sigma_mult: float = DEFAULT_START_SIGMA_MULT
+    method: str = METHOD_DEFAULT
 
 
 @dataclass
@@ -588,5 +594,72 @@ def compute_mixing_time(
     if not plateau_ok:
         res.status = "no stable plateau"
 
+    # ---- method dispatch: optionally override t_mix with an alternative rule
+    if params.method == METHOD_DELTAE_ONLY:
+        res.t_mix = dict(res.t_deltaE)
+        res.status = "ΔE-only"
+        amp = res.amplitudes.get("grand_delta_e", 0.0)
+        if not np.isfinite(res.t_mix.get(0.95, np.nan)):
+            res.confidence = "low"
+        elif amp >= 3.0:
+            res.confidence = "high"
+        elif amp >= 1.5:
+            res.confidence = "medium"
+        else:
+            res.confidence = "low"
+    elif params.method == METHOD_TOP5:
+        top5 = _compute_top5_per_frame(results, params.levels)
+        res.t_mix = top5["t_mix"]
+        # also expose via t_deltaE so the "ΔE95" dashed line on plots maps to it
+        res.t_deltaE = dict(top5["t_mix"])
+        res.amplitudes["grand_delta_e"] = top5["peak"]
+        res.status = "top5-per-frame, normalized first-crossing"
+        peak = top5["peak"]
+        if not np.isfinite(res.t_mix.get(0.95, np.nan)):
+            res.confidence = "low"
+        elif peak >= 3.0:
+            res.confidence = "high"
+        elif peak >= 1.5:
+            res.confidence = "medium"
+        else:
+            res.confidence = "low"
+
     res.notes = notes
     return res
+
+
+def _compute_top5_per_frame(
+    results: List[dict],
+    levels: Tuple[float, ...],
+    K: int = 5,
+) -> Dict[str, object]:
+    """For each frame, take mean of the top-K cell ΔE values; normalize; first-crossing.
+
+    Returns: {"t_mix": {0.90: t90, 0.95: t95, 0.99: t99}, "peak": float}
+    """
+    t = np.array([r["timestamp"] for r in results], dtype=np.float64)
+    cells = np.array(
+        [np.asarray(r["cell_avg"], dtype=np.float64) for r in results]
+    )  # (n_frames, n_cells)
+    n_frames = cells.shape[0]
+    top = np.full(n_frames, np.nan, dtype=np.float64)
+    for i in range(n_frames):
+        row = cells[i]
+        finite = row[np.isfinite(row)]
+        if len(finite) == 0:
+            continue
+        if len(finite) >= K:
+            top[i] = np.partition(finite, -K)[-K:].mean()
+        else:
+            top[i] = finite.mean()
+
+    finite_top = top[np.isfinite(top)]
+    peak = float(finite_top.max()) if len(finite_top) else 0.0
+    t_mix: Dict[float, float] = {L: float("nan") for L in levels}
+    if peak > 0:
+        norm = top / peak
+        for L in levels:
+            mask = np.isfinite(norm) & (norm >= L)
+            idx = np.where(mask)[0]
+            t_mix[L] = float(t[idx[0]]) if len(idx) else float("nan")
+    return {"t_mix": t_mix, "peak": peak}

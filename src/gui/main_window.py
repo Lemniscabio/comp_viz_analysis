@@ -167,6 +167,7 @@ class MainWindow(QMainWindow):
         ctrl.heatmap_toggled.connect(self._video_panel.set_heatmap_visible)
         ctrl.clear_roi_requested.connect(self._on_clear_roi)
         ctrl.clear_mask_requested.connect(self._on_clear_mask)
+        ctrl.mixing_method_changed.connect(self._on_mixing_method_changed)
         self._video_panel.roi_selected.connect(self._on_roi_selected)
         self._video_panel.reference_frame_requested.connect(self._on_set_reference)
         ctrl.batch_requested.connect(self._on_batch_requested)
@@ -322,6 +323,32 @@ class MainWindow(QMainWindow):
             metrics, metrics.get("timestamp", 0.0),
             row_avg=row_avg, col_avg=col_avg, cell_avg=cell_avg,
         )
+
+    def _on_mixing_method_changed(self) -> None:
+        """Re-run engine.finalize() with the new method on the existing results.
+
+        No re-analysis needed — finalize is pure post-processing of the
+        already-captured time series.
+        """
+        if not self._worker or not self._worker.engine:
+            return
+        if not self._worker.engine.results:
+            return
+        from src.core.mixing_time import MixingTimeParams
+        params = getattr(self._controls, "get_mixing_params", lambda: MixingTimeParams())()
+        try:
+            result = self._worker.engine.finalize(params)
+            self._latest_mixing_result = result
+            self._mixing_panel.set_result(result)
+            self._plots_panel.set_mixing_result(result)
+            method = params.method
+            t95 = result.t_mix.get(0.95)
+            t95_str = f"{t95:.2f}s" if isinstance(t95, (int, float)) and t95 == t95 else "NaN"
+            self._status.showMessage(
+                f"Method = {method}: T_mix,95 = {t95_str}", 4000,
+            )
+        except Exception as e:
+            self._status.showMessage(f"Method switch failed: {e}", 5000)
 
     def _on_progress(self, current: int, total: int) -> None:
         self._controls.update_progress(current, total)
