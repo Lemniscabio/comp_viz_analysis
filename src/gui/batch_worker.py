@@ -9,10 +9,11 @@ import numpy as np
 from PyQt6.QtCore import QThread, pyqtSignal
 
 from src.core.analysis_engine import AnalysisEngine
-from src.core.batch import write_batch_config, write_summary_row
+from src.core.batch import write_summary_row
 from src.core.export import DataExporter
 from src.core.mixing_time import MixingTimeParams
 from src.core.video_reader import VideoReader
+from src.core.visual_time import read_visual_time
 
 
 class BatchWorker(QThread):
@@ -43,7 +44,7 @@ class BatchWorker(QThread):
         self._mask = mask
         self._params = params
         self._scale_roi = scale_roi
-        self._per_video = export_per_video_csv
+        self._per_video = bool(export_per_video_csv)
         self._stop = False
         self._template_size: Optional[Tuple[int, int]] = None  # (W, H)
 
@@ -89,13 +90,6 @@ class BatchWorker(QThread):
             summary = self._out / "batch_summary.csv"
             if summary.exists():
                 summary.unlink()
-            write_batch_config(
-                self._out / "batch_analysis_config.json",
-                roi=self._roi,
-                mask_present=self._mask is not None,
-                grid=(self._config["grid_rows"], self._config["grid_cols"]),
-                params=self._params,
-            )
 
             total = len(self._videos)
             for i, video in enumerate(self._videos, 1):
@@ -130,6 +124,7 @@ class BatchWorker(QThread):
                         )
 
                     result = engine.finalize(self._params)
+                    visual_t = read_visual_time(video)
                     write_summary_row(
                         summary,
                         video_file=video.name,
@@ -138,6 +133,7 @@ class BatchWorker(QThread):
                         frame_count=len(engine.results),
                         roi=roi,
                         result=result,
+                        visual_t=visual_t,
                         append=True,
                     )
                     if self._per_video:

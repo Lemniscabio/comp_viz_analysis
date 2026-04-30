@@ -12,6 +12,7 @@ from src.core.mixing_time import MixingTimeParams, MixingTimeResult
 BATCH_CSV_COLUMNS = [
     "video_file", "status", "confidence", "fps", "duration_s", "frame_count",
     "roi_x", "roi_y", "roi_w", "roi_h", "t_start_s",
+    "visual_t_mix_s", "delta_t_mix_95_s", "abs_delta_t_mix_95_s",
     "t_deltaE_90_s", "t_deltaE_95_s", "t_deltaE_99_s",
     "t_cell_90_s", "t_cell_95_s", "t_cell_99_s",
     "t_variance_90_s", "t_variance_95_s", "t_variance_99_s",
@@ -39,11 +40,24 @@ def _g(d, k):
         return ""
 
 
-def _row_for(video_file, fps, duration_s, frame_count, roi, result: MixingTimeResult):
+def _row_for(video_file, fps, duration_s, frame_count, roi, result: MixingTimeResult,
+             visual_t: float = float("nan")):
     if roi is not None:
         rx, ry, rw, rh = roi
     else:
         rx = ry = rw = rh = ""
+
+    t95 = result.t_mix.get(0.95, float("nan"))
+    if visual_t == visual_t and t95 == t95:  # both finite
+        delta = t95 - visual_t
+        visual_str = f"{visual_t:.4f}"
+        delta_str = f"{delta:.4f}"
+        abs_delta_str = f"{abs(delta):.4f}"
+    else:
+        visual_str = f"{visual_t:.4f}" if visual_t == visual_t else ""
+        delta_str = ""
+        abs_delta_str = ""
+
     row = {
         "video_file": video_file,
         "status": result.status,
@@ -53,6 +67,9 @@ def _row_for(video_file, fps, duration_s, frame_count, roi, result: MixingTimeRe
         "frame_count": frame_count,
         "roi_x": rx, "roi_y": ry, "roi_w": rw, "roi_h": rh,
         "t_start_s": f"{result.t_start_s:.4f}",
+        "visual_t_mix_s": visual_str,
+        "delta_t_mix_95_s": delta_str,
+        "abs_delta_t_mix_95_s": abs_delta_str,
     }
     levels = (0.90, 0.95, 0.99)
     suffixes = ("90", "95", "99")
@@ -84,6 +101,7 @@ def write_summary_row(
     frame_count: int,
     roi: Optional[Tuple[int, int, int, int]],
     result: MixingTimeResult,
+    visual_t: float = float("nan"),
     append: bool = True,
 ) -> None:
     """Append (or create) one row in the batch summary CSV."""
@@ -94,7 +112,9 @@ def write_summary_row(
         writer = csv.DictWriter(f, fieldnames=BATCH_CSV_COLUMNS, extrasaction="ignore")
         if write_header:
             writer.writeheader()
-        writer.writerow(_row_for(video_file, fps, duration_s, frame_count, roi, result))
+        writer.writerow(_row_for(
+            video_file, fps, duration_s, frame_count, roi, result, visual_t,
+        ))
 
 
 def write_batch_config(

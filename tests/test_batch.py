@@ -45,6 +45,36 @@ def test_summary_row_appends(tmp_path):
     assert "b.mp4" in lines[2]
 
 
+def test_summary_row_with_visual_time_writes_delta(tmp_path):
+    csv = tmp_path / "summary.csv"
+    r = MixingTimeResult(t_start_s=0.0, levels=(0.90, 0.95, 0.99))
+    r.t_mix = {0.95: 8.04}
+    write_summary_row(
+        csv, video_file="a.mp4", fps=30.0, duration_s=20.0,
+        frame_count=600, roi=None, result=r, visual_t=7.5, append=False,
+    )
+    header, row = csv.read_text().strip().split("\n")
+    by = dict(zip(header.split(","), row.split(",")))
+    assert by["visual_t_mix_s"] == "7.5000"
+    assert by["delta_t_mix_95_s"] == "0.5400"
+    assert by["abs_delta_t_mix_95_s"] == "0.5400"
+
+
+def test_summary_row_without_visual_time_leaves_delta_blank(tmp_path):
+    csv = tmp_path / "summary.csv"
+    r = MixingTimeResult(t_start_s=0.0, levels=(0.90, 0.95, 0.99))
+    r.t_mix = {0.95: 8.04}
+    write_summary_row(
+        csv, video_file="a.mp4", fps=30.0, duration_s=20.0,
+        frame_count=600, roi=None, result=r, append=False,
+    )
+    header, row = csv.read_text().strip().split("\n")
+    by = dict(zip(header.split(","), row.split(",")))
+    assert by["visual_t_mix_s"] == ""
+    assert by["delta_t_mix_95_s"] == ""
+    assert by["abs_delta_t_mix_95_s"] == ""
+
+
 def test_batch_config_json_roundtrip(tmp_path):
     out = tmp_path / "batch_config.json"
     write_batch_config(
