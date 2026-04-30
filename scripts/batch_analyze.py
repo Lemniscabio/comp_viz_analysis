@@ -67,6 +67,9 @@ def _process_video(args: Tuple[str, Dict[str, Any]]) -> Dict[str, Any]:
     from src.core.video_reader import VideoReader
     from src.core.visual_time import read_visual_time
 
+    name = video_path.name
+    print(f"  ▶ start    {name}", flush=True)
+
     t0 = time.perf_counter()
     reader = VideoReader(
         path=str(video_path),
@@ -75,10 +78,26 @@ def _process_video(args: Tuple[str, Dict[str, Any]]) -> Dict[str, Any]:
     )
     fps = reader.fps if reader.fps > 0 else 1.0
     duration = reader.frame_count / fps
+    expected = max(1, reader.frame_count // max(config["frame_skip"], 1))
     engine = AnalysisEngine(config)
+    last_tick = t0
+    processed = 0
     try:
         for frame_number, frame in reader:
             engine.process_frame(frame, frame_number, reader.timestamp(frame_number))
+            processed += 1
+            now = time.perf_counter()
+            if now - last_tick >= 2.0:
+                rate = processed / (now - t0) if now > t0 else 0
+                pct = 100.0 * processed / expected
+                eta = (expected - processed) / rate if rate > 0 else 0
+                print(
+                    f"  ⋯ tick     {name}  "
+                    f"{processed}/{expected} ({pct:4.1f}%)  "
+                    f"{rate:5.1f} fps  ETA {eta:4.0f}s",
+                    flush=True,
+                )
+                last_tick = now
     finally:
         reader.release()
 
