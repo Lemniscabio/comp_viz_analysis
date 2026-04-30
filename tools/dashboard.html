@@ -1,0 +1,417 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Kineticolor — Batch Mixing-Time Dashboard</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #181b22; --panel-2: #20242d;
+    --fg: #e6e6e6; --muted: #8a8f99; --line: #2a2f3a;
+    --good: #2d7d46; --warn: #cc8400; --bad: #c0392b;
+    --accent: #4aa3ff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: var(--bg); color: var(--fg);
+  }
+  header {
+    padding: 16px 24px; border-bottom: 1px solid var(--line);
+    display: flex; align-items: center; gap: 24px;
+  }
+  header h1 { margin: 0; font-size: 18px; font-weight: 600; }
+  header .sub { color: var(--muted); }
+  main { padding: 20px 24px; }
+  .drop {
+    border: 2px dashed var(--line); border-radius: 10px;
+    padding: 60px 20px; text-align: center; color: var(--muted);
+    cursor: pointer; transition: all .15s ease;
+  }
+  .drop.hover { border-color: var(--accent); color: var(--fg); background: var(--panel); }
+  .drop input { display: none; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .card { background: var(--panel); padding: 14px 16px; border-radius: 8px; }
+  .card .v { font-size: 22px; font-weight: 600; }
+  .card .l { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .5px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+  @media (max-width: 1100px) { .grid2 { grid-template-columns: 1fr; } }
+  .panel { background: var(--panel); border-radius: 8px; padding: 14px; }
+  .panel h3 { margin: 0 0 10px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td { padding: 6px 10px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  th { cursor: pointer; user-select: none; color: var(--muted); font-weight: 600; }
+  th:hover { color: var(--fg); }
+  tr:hover td { background: var(--panel-2); }
+  .conf-high { color: var(--good); font-weight: 600; }
+  .conf-medium { color: var(--warn); font-weight: 600; }
+  .conf-low { color: var(--bad); font-weight: 600; }
+  .delta-good { color: var(--good); }
+  .delta-warn { color: var(--warn); }
+  .delta-bad { color: var(--bad); font-weight: 600; }
+  .controls { display: flex; gap: 12px; align-items: center; margin-bottom: 14px; }
+  .controls label { color: var(--muted); }
+  .controls input[type=text], .controls select {
+    background: var(--panel-2); color: var(--fg); border: 1px solid var(--line);
+    border-radius: 4px; padding: 4px 8px;
+  }
+  svg { width: 100%; height: 320px; display: block; }
+  .axis { stroke: var(--line); stroke-width: 1; }
+  .tick { stroke: var(--line); stroke-width: 1; }
+  .tick-label { fill: var(--muted); font-size: 10px; }
+  .ref-line { stroke: var(--muted); stroke-dasharray: 4 4; stroke-width: 1; }
+  .pt { stroke-width: 1.2; cursor: pointer; }
+  .pt:hover { stroke: white; stroke-width: 2; }
+  .legend { color: var(--muted); font-size: 11px; margin-top: 6px; }
+  .empty { color: var(--muted); padding: 20px; text-align: center; }
+  .pill { padding: 1px 8px; border-radius: 10px; font-size: 11px; background: var(--panel-2); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Kineticolor — Mixing-Time Dashboard</h1>
+  <span class="sub">Drop a <code>batch_summary.csv</code> to inspect results</span>
+</header>
+
+<main>
+  <div id="dropzone" class="drop">
+    <div style="font-size: 16px; margin-bottom: 6px;">📂 Drop batch_summary.csv here</div>
+    <div>or click to choose</div>
+    <input type="file" id="fileInput" accept=".csv,text/csv">
+  </div>
+
+  <div id="dashboard" style="display:none;">
+    <div class="stats" id="stats"></div>
+
+    <div class="grid2">
+      <div class="panel">
+        <h3>Calculated vs Visual (T_mix,95)</h3>
+        <svg id="scatter" viewBox="0 0 600 320" preserveAspectRatio="none"></svg>
+        <div class="legend" id="scatterLegend"></div>
+      </div>
+      <div class="panel">
+        <h3>|Δ T_mix,95| distribution</h3>
+        <svg id="hist" viewBox="0 0 600 320" preserveAspectRatio="none"></svg>
+        <div class="legend">Each bar is the count of videos in that |Δ| bucket (s).</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="controls">
+        <label>Filter:
+          <input type="text" id="filter" placeholder="filename substring...">
+        </label>
+        <label>Confidence:
+          <select id="confFilter">
+            <option value="">all</option>
+            <option value="high">high</option>
+            <option value="medium">medium</option>
+            <option value="low">low</option>
+          </select>
+        </label>
+        <label>Sort by:
+          <select id="sortKey">
+            <option value="abs_delta_t_mix_95_s">|Δ T_mix,95|</option>
+            <option value="delta_t_mix_95_s">Δ T_mix,95 (signed)</option>
+            <option value="t_mix_95_s">T_mix,95 (calc)</option>
+            <option value="visual_t_mix_s">visual</option>
+            <option value="confidence">confidence</option>
+            <option value="video_file">filename</option>
+          </select>
+        </label>
+        <span id="rowCount" class="pill"></span>
+      </div>
+      <div style="overflow-x:auto;">
+        <table id="tbl">
+          <thead><tr id="thead"></tr></thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+const COLS = [
+  ["video_file", "video"],
+  ["confidence", "conf"],
+  ["visual_t_mix_s", "visual"],
+  ["t_mix_95_s", "calc T95"],
+  ["delta_t_mix_95_s", "Δ"],
+  ["abs_delta_t_mix_95_s", "|Δ|"],
+  ["t_deltaE_95_s", "ΔE95"],
+  ["t_spatial_95_s", "Spatial95"],
+  ["t_texture_95_s", "Texture95"],
+  ["t_contact_95_s", "Contact95"],
+  ["t_contrast_95_s", "Contrast95"],
+  ["t_cell_95_s", "Cell95"],
+  ["t_variance_95_s", "Var95"],
+  ["t_start_s", "t_start"],
+  ["fps", "fps"],
+  ["duration_s", "dur"],
+  ["status", "status"],
+];
+
+let DATA = [];
+let SORT_DESC = true;
+
+function parseCSV(text) {
+  const lines = text.replace(/\r/g, "").split("\n").filter(Boolean);
+  if (!lines.length) return [];
+  const header = splitCSV(lines[0]);
+  return lines.slice(1).map(line => {
+    const cells = splitCSV(line);
+    const row = {};
+    header.forEach((h, i) => { row[h] = cells[i] === undefined ? "" : cells[i]; });
+    return row;
+  });
+}
+function splitCSV(line) {
+  const out = []; let cur = ""; let inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === '"' && line[i+1] === '"') { cur += '"'; i++; }
+    else if (c === '"') { inQ = !inQ; }
+    else if (c === ',' && !inQ) { out.push(cur); cur = ""; }
+    else cur += c;
+  }
+  out.push(cur);
+  return out;
+}
+
+function num(v) {
+  if (v === "" || v == null) return NaN;
+  const n = parseFloat(v);
+  return isNaN(n) ? NaN : n;
+}
+
+function fmt(v, dp = 2) {
+  const n = num(v);
+  return isNaN(n) ? "—" : n.toFixed(dp);
+}
+
+function deltaClass(d) {
+  if (isNaN(d)) return "";
+  const a = Math.abs(d);
+  if (a < 1.0) return "delta-good";
+  if (a < 3.0) return "delta-warn";
+  return "delta-bad";
+}
+
+function render() {
+  const tbl = document.getElementById("dashboard");
+  tbl.style.display = DATA.length ? "" : "none";
+  if (!DATA.length) return;
+
+  // Stats
+  const finiteDelta = DATA.map(r => num(r.delta_t_mix_95_s)).filter(x => !isNaN(x));
+  const absDelta = finiteDelta.map(Math.abs);
+  const mean = a => a.reduce((s, x) => s + x, 0) / (a.length || 1);
+  const median = a => {
+    if (!a.length) return NaN;
+    const s = [...a].sort((x, y) => x - y);
+    return s.length % 2 ? s[(s.length-1)/2] : (s[s.length/2 - 1] + s[s.length/2]) / 2;
+  };
+  const counts = { high: 0, medium: 0, low: 0 };
+  DATA.forEach(r => { if (counts[r.confidence] !== undefined) counts[r.confidence]++; });
+  const stats = [
+    ["videos", DATA.length],
+    ["with visual time", finiteDelta.length],
+    ["mean |Δ|", absDelta.length ? mean(absDelta).toFixed(2) + " s" : "—"],
+    ["median |Δ|", absDelta.length ? median(absDelta).toFixed(2) + " s" : "—"],
+    ["max |Δ|", absDelta.length ? Math.max(...absDelta).toFixed(2) + " s" : "—"],
+    ["high conf", counts.high],
+    ["medium conf", counts.medium],
+    ["low conf", counts.low],
+  ];
+  document.getElementById("stats").innerHTML = stats
+    .map(([l, v]) => `<div class="card"><div class="v">${v}</div><div class="l">${l}</div></div>`)
+    .join("");
+
+  drawScatter();
+  drawHist(absDelta);
+  renderTable();
+}
+
+function drawScatter() {
+  const svg = document.getElementById("scatter");
+  svg.innerHTML = "";
+  const W = 600, H = 320, m = { l: 44, r: 12, t: 12, b: 32 };
+  const pts = DATA
+    .map(r => ({ x: num(r.visual_t_mix_s), y: num(r.t_mix_95_s), conf: r.confidence, name: r.video_file }))
+    .filter(p => !isNaN(p.x) && !isNaN(p.y));
+  document.getElementById("scatterLegend").textContent =
+    pts.length ? `${pts.length} points • dashed line is y = x (perfect agreement)`
+               : "no rows have both visual_t_mix_s and t_mix_95_s";
+  if (!pts.length) return;
+  const allVals = pts.flatMap(p => [p.x, p.y]);
+  const lo = Math.floor(Math.min(...allVals));
+  const hi = Math.ceil(Math.max(...allVals));
+  const range = Math.max(hi - lo, 1);
+  const sx = v => m.l + (v - lo) / range * (W - m.l - m.r);
+  const sy = v => H - m.b - (v - lo) / range * (H - m.t - m.b);
+
+  // y=x reference line
+  svg.innerHTML += `<line class="ref-line" x1="${sx(lo)}" y1="${sy(lo)}" x2="${sx(hi)}" y2="${sy(hi)}"/>`;
+  // axes
+  svg.innerHTML += `<line class="axis" x1="${m.l}" y1="${H - m.b}" x2="${W - m.r}" y2="${H - m.b}"/>`;
+  svg.innerHTML += `<line class="axis" x1="${m.l}" y1="${m.t}" x2="${m.l}" y2="${H - m.b}"/>`;
+  // ticks
+  const nTicks = 5;
+  for (let i = 0; i <= nTicks; i++) {
+    const v = lo + (range * i / nTicks);
+    const x = sx(v), y = sy(v);
+    svg.innerHTML += `<line class="tick" x1="${x}" y1="${H - m.b}" x2="${x}" y2="${H - m.b + 4}"/>`;
+    svg.innerHTML += `<text class="tick-label" x="${x}" y="${H - m.b + 16}" text-anchor="middle">${v.toFixed(0)}</text>`;
+    svg.innerHTML += `<line class="tick" x1="${m.l - 4}" y1="${y}" x2="${m.l}" y2="${y}"/>`;
+    svg.innerHTML += `<text class="tick-label" x="${m.l - 6}" y="${y + 3}" text-anchor="end">${v.toFixed(0)}</text>`;
+  }
+  // axis labels
+  svg.innerHTML += `<text class="tick-label" x="${(W + m.l) / 2}" y="${H - 6}" text-anchor="middle">visual t_mix (s)</text>`;
+  svg.innerHTML += `<text class="tick-label" x="${-H/2}" y="14" text-anchor="middle" transform="rotate(-90)">calculated T_mix,95 (s)</text>`;
+  // points
+  const colorFor = c => ({ high: "#2d7d46", medium: "#cc8400", low: "#c0392b" })[c] || "#4aa3ff";
+  pts.forEach(p => {
+    svg.innerHTML += `<circle class="pt" cx="${sx(p.x)}" cy="${sy(p.y)}" r="4"
+      fill="${colorFor(p.conf)}" stroke="${colorFor(p.conf)}">
+      <title>${escapeHTML(p.name)}\nvisual: ${p.x.toFixed(2)} s\ncalc: ${p.y.toFixed(2)} s\nconf: ${p.conf}</title>
+    </circle>`;
+  });
+}
+
+function drawHist(values) {
+  const svg = document.getElementById("hist");
+  svg.innerHTML = "";
+  const W = 600, H = 320, m = { l: 44, r: 12, t: 12, b: 32 };
+  if (!values.length) return;
+  const max = Math.max(...values, 1);
+  const nBins = Math.min(20, Math.max(5, Math.ceil(Math.sqrt(values.length))));
+  const binSize = max / nBins;
+  const bins = new Array(nBins).fill(0);
+  values.forEach(v => {
+    const i = Math.min(nBins - 1, Math.floor(v / binSize));
+    bins[i]++;
+  });
+  const yMax = Math.max(...bins) || 1;
+  const sy = v => H - m.b - (v / yMax) * (H - m.t - m.b);
+  const bw = (W - m.l - m.r) / nBins;
+
+  svg.innerHTML += `<line class="axis" x1="${m.l}" y1="${H - m.b}" x2="${W - m.r}" y2="${H - m.b}"/>`;
+  svg.innerHTML += `<line class="axis" x1="${m.l}" y1="${m.t}" x2="${m.l}" y2="${H - m.b}"/>`;
+
+  bins.forEach((c, i) => {
+    const x = m.l + i * bw;
+    const y = sy(c);
+    const h = (H - m.b) - y;
+    const center = (i + 0.5) * binSize;
+    const color = center < 1 ? "#2d7d46" : center < 3 ? "#cc8400" : "#c0392b";
+    svg.innerHTML += `<rect x="${x + 1}" y="${y}" width="${Math.max(bw - 2, 1)}" height="${h}" fill="${color}">
+      <title>${center.toFixed(1)} s ± ${(binSize/2).toFixed(2)}: ${c} videos</title>
+    </rect>`;
+  });
+  // x-axis ticks
+  const ticks = 5;
+  for (let i = 0; i <= ticks; i++) {
+    const v = max * i / ticks;
+    const x = m.l + (v / max) * (W - m.l - m.r);
+    svg.innerHTML += `<text class="tick-label" x="${x}" y="${H - m.b + 16}" text-anchor="middle">${v.toFixed(1)}</text>`;
+  }
+  svg.innerHTML += `<text class="tick-label" x="${(W + m.l) / 2}" y="${H - 6}" text-anchor="middle">|Δ T_mix,95| (s)</text>`;
+  svg.innerHTML += `<text class="tick-label" x="${-H/2}" y="14" text-anchor="middle" transform="rotate(-90)">video count</text>`;
+}
+
+function escapeHTML(s) {
+  return String(s ?? "").replace(/[&<>"']/g, c => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  })[c]);
+}
+
+function renderTable() {
+  const thead = document.getElementById("thead");
+  thead.innerHTML = COLS.map(([k, l]) =>
+    `<th data-key="${k}">${l}</th>`
+  ).join("");
+  thead.querySelectorAll("th").forEach(th => {
+    th.addEventListener("click", () => {
+      const k = th.dataset.key;
+      const sel = document.getElementById("sortKey");
+      if (sel.value === k) SORT_DESC = !SORT_DESC;
+      else { sel.value = k; SORT_DESC = true; }
+      renderTable();
+    });
+  });
+
+  const filter = document.getElementById("filter").value.toLowerCase();
+  const confFilter = document.getElementById("confFilter").value;
+  const sortKey = document.getElementById("sortKey").value;
+
+  let rows = DATA.filter(r => {
+    if (confFilter && r.confidence !== confFilter) return false;
+    if (filter && !(r.video_file || "").toLowerCase().includes(filter)) return false;
+    return true;
+  });
+
+  rows.sort((a, b) => {
+    const av = num(a[sortKey]); const bv = num(b[sortKey]);
+    if (!isNaN(av) && !isNaN(bv)) return SORT_DESC ? bv - av : av - bv;
+    const sa = (a[sortKey] || "").toString();
+    const sb = (b[sortKey] || "").toString();
+    return SORT_DESC ? sb.localeCompare(sa) : sa.localeCompare(sb);
+  });
+
+  document.getElementById("rowCount").textContent =
+    `${rows.length} of ${DATA.length} rows`;
+
+  const tbody = document.getElementById("tbody");
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="${COLS.length}" class="empty">no rows match the filter</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = rows.map(r => {
+    return "<tr>" + COLS.map(([k]) => {
+      const v = r[k] ?? "";
+      if (k === "video_file") return `<td title="${escapeHTML(v)}">${escapeHTML(v)}</td>`;
+      if (k === "confidence") return `<td class="conf-${v}">${v || "—"}</td>`;
+      if (k === "status") return `<td>${escapeHTML(v) || "—"}</td>`;
+      if (k === "delta_t_mix_95_s" || k === "abs_delta_t_mix_95_s") {
+        const d = num(v);
+        return `<td class="${deltaClass(d)}">${fmt(v)}</td>`;
+      }
+      return `<td>${fmt(v)}</td>`;
+    }).join("") + "</tr>";
+  }).join("");
+}
+
+// File loading
+function loadFile(file) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    DATA = parseCSV(e.target.result);
+    document.getElementById("dropzone").style.display = DATA.length ? "none" : "";
+    render();
+  };
+  reader.readAsText(file);
+}
+
+const dz = document.getElementById("dropzone");
+const fi = document.getElementById("fileInput");
+dz.addEventListener("click", () => fi.click());
+fi.addEventListener("change", e => { if (e.target.files[0]) loadFile(e.target.files[0]); });
+["dragenter", "dragover"].forEach(ev =>
+  dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.add("hover"); })
+);
+["dragleave", "drop"].forEach(ev =>
+  dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.remove("hover"); })
+);
+dz.addEventListener("drop", e => {
+  e.preventDefault();
+  const f = e.dataTransfer.files[0];
+  if (f) loadFile(f);
+});
+
+["filter", "confFilter", "sortKey"].forEach(id =>
+  document.getElementById(id).addEventListener("input", renderTable)
+);
+</script>
+</body>
+</html>
