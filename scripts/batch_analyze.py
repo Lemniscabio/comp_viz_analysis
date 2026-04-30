@@ -18,8 +18,7 @@ thread count to 1 so 10 workers don't oversubscribe the cores.
 """
 from __future__ import annotations
 
-# IMPORTANT: cap BLAS / OpenMP thread counts BEFORE numpy / cv2 are imported,
-# both here and in workers (workers re-execute this module-level code).
+# Cap BLAS / OpenMP thread counts BEFORE numpy / cv2 are imported.
 import os
 
 for _v in (
@@ -31,11 +30,13 @@ for _v in (
 import argparse
 import multiprocessing as mp
 import sys
+import threading
 import time
 import traceback
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from queue import Empty
+from typing import Any, Dict, List, Tuple
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
@@ -49,26 +50,19 @@ def find_videos(video_dir: Path) -> List[Path]:
 
 
 # ---------------------------------------------------------------------------
-# Worker (runs in a separate process)
+# Worker
 # ---------------------------------------------------------------------------
-def _process_video(args: Tuple[str, Dict[str, Any]]) -> Dict[str, Any]:
-    """Worker entry point: run pipeline on one video, return a serializable dict.
-
-    Returning a plain dict (rather than a MixingTimeResult) keeps the
-    parent → child IPC simple and avoids dataclass-pickling surprises.
-    """
-    video_path_str, config = args
+def _process_video(args: Tuple[str, Dict[str, Any], Any]) -> Dict[str, Any]:
+    video_path_str, config, prog_q = args
     video_path = Path(video_path_str)
+    name = video_path.name
 
-    # Imports go inside the worker so each process pays the import cost
-    # only once it's busy. This also makes the parent's startup snappy.
     from src.core.analysis_engine import AnalysisEngine
     from src.core.mixing_time import MixingTimeParams
     from src.core.video_reader import VideoReader
     from src.core.visual_time import read_visual_time
 
-    name = video_path.name
-    print(f"  ▶ start    {name}", flush=True)
+    prog_q.put(("start", name))
 
     t0 = time.perf_counter()
     reader = VideoReader(
@@ -80,6 +74,7 @@ def _process_video(args: Tuple[str, Dict[str, Any]]) -> Dict[str, Any]:
     duration = reader.frame_count / fps
     expected = max(1, reader.frame_count // max(config["frame_skip"], 1))
     engine = AnalysisEngine(config)
+
     last_tick = t0
     processed = 0
     try:
@@ -87,23 +82,16 @@ def _process_video(args: Tuple[str, Dict[str, Any]]) -> Dict[str, Any]:
             engine.process_frame(frame, frame_number, reader.timestamp(frame_number))
             processed += 1
             now = time.perf_counter()
-            if now - last_tick >= 2.0:
+            if now - last_tick >= 0.3:
                 rate = processed / (now - t0) if now > t0 else 0
-                pct = 100.0 * processed / expected
-                eta = (expected - processed) / rate if rate > 0 else 0
-                print(
-                    f"  ⋯ tick     {name}  "
-                    f"{processed}/{expected} ({pct:4.1f}%)  "
-                    f"{rate:5.1f} fps  ETA {eta:4.0f}s",
-                    flush=True,
-                )
+                prog_q.put(("progress", name, processed, expected, rate))
                 last_tick = now
     finally:
         reader.release()
 
     if not engine.results:
         return {
-            "video_path": str(video_path), "ok": False,
+            "video_path": str(video_path), "video_name": name, "ok": False,
             "error": "no frames produced", "elapsed_s": time.perf_counter() - t0,
         }
 
@@ -112,19 +100,18 @@ def _process_video(args: Tuple[str, Dict[str, Any]]) -> Dict[str, Any]:
 
     return {
         "video_path": str(video_path),
-        "video_name": video_path.name,
+        "video_name": name,
         "ok": True,
         "fps": fps,
         "duration_s": duration,
         "frame_count": len(engine.results),
         "elapsed_s": time.perf_counter() - t0,
         "visual_t": visual_t,
-        "result": asdict(result),  # plain-dict serialization
+        "result": asdict(result),
     }
 
 
-def _safe_process_video(args: Tuple[str, Dict[str, Any]]) -> Dict[str, Any]:
-    """Catch exceptions in the worker so one bad video doesn't kill the pool."""
+def _safe_process_video(args: Tuple[str, Dict[str, Any], Any]) -> Dict[str, Any]:
     try:
         return _process_video(args)
     except Exception as e:
@@ -139,21 +126,105 @@ def _safe_process_video(args: Tuple[str, Dict[str, Any]]) -> Dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Parent: write rows as workers finish
+# Live in-place renderer (single writer to stdout)
 # ---------------------------------------------------------------------------
-def _result_from_dict(d: Dict[str, Any]):
-    """Reconstruct a minimal MixingTimeResult-shaped object from asdict() output."""
-    from src.core.mixing_time import MixingTimeResult
+class LiveRenderer(threading.Thread):
+    """Drains the progress queue and redraws an in-place status block.
 
-    # Dict[float, float] keys survive pickling but only when going through
-    # asdict()/dict() round-trips on the same Python; nothing fancy needed.
-    return MixingTimeResult(**d)
+    Layout:
+        <permanent log lines from completed videos appear here, scrolling up>
+        ─── 7 done / 49 (3 running) ───────────────
+          ▶ name_a.mp4              123/520 ( 23.7%)  61.2 fps
+          ▶ name_b.mp4              105/520 ( 20.2%)  58.4 fps
+          ▶ name_c.mp4               94/520 ( 18.1%)  55.0 fps
+
+    Workers push:    ("start", name)
+                     ("progress", name, processed, expected, rate)
+    Parent pushes:   ("done", line)              # single permanent log line
+                     ("stop",)                   # shutdown
+    """
+
+    def __init__(self, q, total: int):
+        super().__init__(daemon=True)
+        self._q = q
+        self._total = total
+        self._slots: Dict[str, Tuple[int, int, float]] = {}
+        self._completed = 0
+        self._lines_drawn = 0
+        self._tty = sys.stdout.isatty()
+
+    # --- ANSI helpers ------------------------------------------------------
+    def _erase_block(self) -> None:
+        if self._lines_drawn and self._tty:
+            sys.stdout.write(f"\033[{self._lines_drawn}F\033[J")
+        self._lines_drawn = 0
+
+    def _draw_block(self) -> None:
+        running = sorted(self._slots.keys())
+        header = f"─── {self._completed} done / {self._total}  ({len(running)} running) ───"
+        sys.stdout.write(header + "\n")
+        for nm in running:
+            p, e, r = self._slots[nm]
+            pct = (100.0 * p / e) if e else 0.0
+            disp = nm if len(nm) <= 40 else nm[:37] + "..."
+            sys.stdout.write(
+                f"  ▶ {disp:<40}  {p:>5}/{e:<5} ({pct:5.1f}%)  {r:5.1f} fps\n"
+            )
+        self._lines_drawn = 1 + len(running)
+        sys.stdout.flush()
+
+    # --- main loop ---------------------------------------------------------
+    def run(self) -> None:
+        last_redraw = 0.0
+        while True:
+            try:
+                ev = self._q.get(timeout=0.15)
+            except Empty:
+                ev = None
+
+            need_redraw = False
+            if ev is not None:
+                kind = ev[0]
+                if kind == "stop":
+                    self._erase_block()
+                    sys.stdout.flush()
+                    return
+                elif kind == "start":
+                    self._slots[ev[1]] = (0, 0, 0.0)
+                    need_redraw = True
+                elif kind == "progress":
+                    _, name, p, e, r = ev
+                    if name in self._slots:
+                        self._slots[name] = (p, e, r)
+                    else:
+                        # progress arrived before start (rare race) — show it anyway
+                        self._slots[name] = (p, e, r)
+                    need_redraw = True
+                elif kind == "done":
+                    _, name, log_line = ev
+                    self._slots.pop(name, None)
+                    self._completed += 1
+                    self._erase_block()
+                    sys.stdout.write(log_line + "\n")
+                    self._draw_block()
+                    last_redraw = time.perf_counter()
+                    continue
+
+            now = time.perf_counter()
+            if need_redraw and (now - last_redraw) > 0.2:
+                self._erase_block()
+                self._draw_block()
+                last_redraw = now
 
 
+# ---------------------------------------------------------------------------
+# CSV writer
+# ---------------------------------------------------------------------------
 def _write_row(summary_csv: Path, payload: Dict[str, Any]) -> None:
     from src.core.batch import write_summary_row
+    from src.core.mixing_time import MixingTimeResult
 
-    result = _result_from_dict(payload["result"])
+    result = MixingTimeResult(**payload["result"])
     write_summary_row(
         summary_csv,
         video_file=payload["video_name"],
@@ -167,6 +238,9 @@ def _write_row(summary_csv: Path, payload: Dict[str, Any]) -> None:
     )
 
 
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 def main() -> None:
     ap = argparse.ArgumentParser(description="Batch-analyze videos -> single summary CSV")
     ap.add_argument("video_dir", type=Path)
@@ -193,7 +267,6 @@ def main() -> None:
     if not videos:
         sys.exit(f"No videos found in {video_dir}")
 
-    # Imports here keep the worker spawn-import cost predictable.
     from src.utils.config_loader import load_config
     config = load_config(config_path) if config_path.exists() else load_config()
 
@@ -208,32 +281,46 @@ def main() -> None:
     print(f"Config:       {config_path}")
     print()
 
-    work_items = [(str(v), config) for v in videos]
+    ctx = mp.get_context("spawn")
+    manager = ctx.Manager()
+    prog_q = manager.Queue()
+    renderer = LiveRenderer(prog_q, total=len(videos))
+    renderer.start()
+
+    work_items = [(str(v), config, prog_q) for v in videos]
     t_start = time.perf_counter()
     done = failed = 0
 
-    # 'spawn' is the only safe start method on macOS for our stack
-    # (OpenCV + numpy + threads + Qt-adjacent code). 'fork' can deadlock.
-    ctx = mp.get_context("spawn")
-    with ctx.Pool(processes=workers) as pool:
-        for i, payload in enumerate(
-            pool.imap_unordered(_safe_process_video, work_items), 1
-        ):
-            name = payload.get("video_name") or Path(payload.get("video_path", "?")).name
-            elapsed = payload.get("elapsed_s", 0.0)
-            if payload.get("ok"):
-                _write_row(summary_csv, payload)
-                conf = payload["result"].get("confidence", "?")
-                tmix95 = payload["result"].get("t_mix", {}).get(0.95)
-                tmix_str = f"T95={tmix95:.2f}s" if isinstance(tmix95, (int, float)) and tmix95 == tmix95 else "T95=NaN"
-                print(f"[{i}/{len(videos)}] {name}: ok ({conf}) {tmix_str} in {elapsed:.1f}s")
-                done += 1
-            else:
-                print(f"[{i}/{len(videos)}] {name}: FAILED ({payload.get('error')}) in {elapsed:.1f}s")
-                if payload.get("traceback"):
-                    sys.stderr.write(payload["traceback"] + "\n")
-                failed += 1
-            sys.stdout.flush()
+    try:
+        with ctx.Pool(processes=workers) as pool:
+            for i, payload in enumerate(
+                pool.imap_unordered(_safe_process_video, work_items), 1
+            ):
+                name = payload.get("video_name") or "?"
+                elapsed = payload.get("elapsed_s", 0.0)
+                if payload.get("ok"):
+                    _write_row(summary_csv, payload)
+                    conf = payload["result"].get("confidence", "?")
+                    tmix95 = payload["result"].get("t_mix", {}).get(0.95)
+                    tmix_str = (
+                        f"T95={tmix95:.2f}s"
+                        if isinstance(tmix95, (int, float)) and tmix95 == tmix95
+                        else "T95=NaN"
+                    )
+                    line = f"[{i}/{len(videos)}] {name}: ok ({conf}) {tmix_str} in {elapsed:.1f}s"
+                    done += 1
+                else:
+                    line = (
+                        f"[{i}/{len(videos)}] {name}: FAILED "
+                        f"({payload.get('error')}) in {elapsed:.1f}s"
+                    )
+                    if payload.get("traceback"):
+                        sys.stderr.write(payload["traceback"] + "\n")
+                    failed += 1
+                prog_q.put(("done", name, line))
+    finally:
+        prog_q.put(("stop",))
+        renderer.join(timeout=2)
 
     total = time.perf_counter() - t_start
     print()
@@ -242,6 +329,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    # Required on macOS when using 'spawn'; harmless elsewhere.
     mp.freeze_support()
     main()
