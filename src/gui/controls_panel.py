@@ -260,6 +260,7 @@ class ControlsPanel(QWidget):
         self._combo_method.addItem("default (max-of-three)", "default")
         self._combo_method.addItem("ΔE only", "deltaE_only")
         self._combo_method.addItem("top5 cells/frame", "top5_per_frame")
+        self._combo_method.addItem("all cells avg/frame", "allcells_per_frame")
         self._combo_method.currentIndexChanged.connect(
             lambda _i: self.mixing_method_changed.emit()
         )
