@@ -50,6 +50,26 @@ def test_empty_returns_nan():
         assert math.isnan(read_visual_time("dummy.mp4"))
 
 
+def test_mm_ss_format():
+    with _patch_mdls("0:25\n"):
+        assert read_visual_time("dummy.mp4") == 25.0
+
+
+def test_m_ss_format():
+    with _patch_mdls("1:23\n"):
+        assert read_visual_time("dummy.mp4") == 83.0
+
+
+def test_mm_ss_with_decimal():
+    with _patch_mdls("1:23.5\n"):
+        assert read_visual_time("dummy.mp4") == 83.5
+
+
+def test_key_value_mm_ss():
+    with _patch_mdls("visual_time=2:05\n"):
+        assert read_visual_time("dummy.mp4") == 125.0
+
+
 def test_unparseable_returns_nan():
     with _patch_mdls("not a number\n"):
         assert math.isnan(read_visual_time("dummy.mp4"))
