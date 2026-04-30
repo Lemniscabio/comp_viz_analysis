@@ -49,9 +49,31 @@ def analyze_one(video_path: Path, summary_csv: Path, config: dict) -> int:
     )
     fps = reader.fps if reader.fps > 0 else 1.0
     duration = reader.frame_count / fps
+    expected = max(1, reader.frame_count // max(config["frame_skip"], 1))
     engine = AnalysisEngine(config)
+
+    t0 = time.perf_counter()
+    processed = 0
+    last_print = 0.0
+    bar_width = 24
     for frame_number, frame in reader:
         engine.process_frame(frame, frame_number, reader.timestamp(frame_number))
+        processed += 1
+        now = time.perf_counter()
+        if now - last_print > 0.25:
+            elapsed = now - t0
+            rate = processed / elapsed if elapsed > 0 else 0
+            pct = processed / expected if expected else 0
+            eta = (expected - processed) / rate if rate > 0 else 0
+            filled = int(bar_width * min(pct, 1.0))
+            bar = "=" * filled + ">" + " " * max(bar_width - filled - 1, 0)
+            sys.stdout.write(
+                f"\r  [{bar}] {processed}/{expected}  {rate:5.1f} fps  ETA {eta:5.0f}s "
+            )
+            sys.stdout.flush()
+            last_print = now
+    sys.stdout.write("\r" + " " * 80 + "\r")
+    sys.stdout.flush()
     reader.release()
 
     if not engine.results:
