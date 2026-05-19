@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "camera": {
+    "device_index": 0,
+    "device_name": "Integrated Webcam",
+    "resolution": [
+      1280,
+      720
+    ]
+  },
+  "vessel_count": 3,
+  "vessels": [
+    {
+      "id": 1,
+      "label": "V1",
+      "color": "#ef4444",
+      "roi": [
+        133,
+        120,
+        63,
+        208
+      ]
+    },
+    {
+      "id": 2,
+      "label": "V2",
+      "color": "#22c55e",
+      "roi": [
+        289,
+        133,
+        72,
+        203
+      ]
+    },
+    {
+      "id": 3,
+      "label": "V3",
+      "color": "#3b82f6",
+      "roi": [
+        436,
+        105,
+        168,
+        295
+      ]
+    }
+  ]
+}
