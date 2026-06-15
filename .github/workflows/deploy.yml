@@ -1,0 +1,61 @@
+name: deploy
+on:
+  push: { branches: [main, feat/web-deploy] }
+  pull_request: {}
+
+permissions: { contents: read, id-token: write }
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -r web/backend/requirements.txt -r web/worker/requirements.txt
+      - run: python -m pytest web/tests/ -v
+      - uses: actions/setup-node@v4
+        with: { node-version: "20" }
+      - run: cd web/frontend && npm install && VITE_OAUTH_CLIENT_ID=ci npm run build
+
+  deploy:
+    needs: test
+    if: github.ref == 'refs/heads/feat/web-deploy'   # change to main once merged
+    runs-on: ubuntu-latest
+    env:
+      PROJECT: kineticolor-cloud
+      REGION: us-central1
+      BUCKET: kineticolor-videos
+      AR: us-central1-docker.pkg.dev/kineticolor-cloud/kineticolor
+    steps:
+      - uses: actions/checkout@v4
+      - name: Guard OAUTH_CLIENT_ID
+        run: |
+          if [ -z "${{ vars.OAUTH_CLIENT_ID }}" ]; then echo "::error::OAUTH_CLIENT_ID Variable missing"; exit 1; fi
+      - uses: google-github-actions/auth@v2
+        with:
+          project_id: kineticolor-cloud
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: kc-ci-deployer@kineticolor-cloud.iam.gserviceaccount.com
+      - uses: google-github-actions/setup-gcloud@v2
+      - run: gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
+      - name: Build + push
+        run: |
+          SHA=$(git rev-parse --short HEAD)
+          docker buildx build --platform linux/amd64 -f web/worker/Dockerfile \
+            -t $AR/worker:$SHA -t $AR/worker:latest --push .
+          docker buildx build --platform linux/amd64 -f web/backend/Dockerfile \
+            --build-arg VITE_OAUTH_CLIENT_ID=${{ vars.OAUTH_CLIENT_ID }} \
+            -t $AR/backend:$SHA -t $AR/backend:latest --push .
+      - name: Deploy worker Job
+        run: |
+          SHA=$(git rev-parse --short HEAD)
+          gcloud run jobs deploy kineticolor-worker --image $AR/worker:$SHA --region $REGION \
+            --service-account kc-worker@$PROJECT.iam.gserviceaccount.com \
+            --cpu 4 --memory 4Gi --task-timeout 3600 --max-retries 0 --set-env-vars KC_BUCKET=$BUCKET,KC_THREADS=4
+      - name: Deploy backend service
+        run: |
+          SHA=$(git rev-parse --short HEAD)
+          gcloud run deploy kineticolor-app --image $AR/backend:$SHA --region $REGION \
+            --service-account kc-backend@$PROJECT.iam.gserviceaccount.com --allow-unauthenticated \
+            --set-env-vars KC_PROJECT=$PROJECT,KC_REGION=$REGION,KC_BUCKET=$BUCKET,KC_OAUTH_CLIENT_ID=${{ vars.OAUTH_CLIENT_ID }},KC_ALLOWED_DOMAIN=lemnisca.bio,KC_WORKER_JOB=kineticolor-worker,KC_BACKEND_SA=kc-backend@$PROJECT.iam.gserviceaccount.com
