@@ -1,5 +1,7 @@
 # Kineticolor
 
+**Branches:** `feat/mixing-time` contains an experimental multi-metric mixing-time quantifier (kept for reference; **reason: _<USER TO FILL IN>_**). The cloud/web deployment on `feat/web-deploy` deliberately uses only this `main` branch's ΔE logic.
+
 A computer vision desktop application for real-time kinetic analysis of mixing phenomena in reaction vessels.
 
 Built for analyzing pH titration mixing in transparent bioreactors — replacing pH probes that have 10-20 second delay with real-time colorimetric feedback from video.
