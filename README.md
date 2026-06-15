@@ -1,6 +1,6 @@
 # Kineticolor
 
-**Branches:** `feat/mixing-time` contains an experimental multi-metric mixing-time quantifier (kept for reference; **reason: _<USER TO FILL IN>_**). The cloud/web deployment on `feat/web-deploy` deliberately uses only this `main` branch's ΔE logic.
+**Branches:** `feat/mixing-time` holds experimental tests — cropping and downscaling videos and quantifying mixing time via several alternative methods. Kept for reference only; **`main` is canonical**. The cloud/web deployment on `feat/web-deploy` deliberately uses only this `main` branch's ΔE logic.
 
 A computer vision desktop application for real-time kinetic analysis of mixing phenomena in reaction vessels.
 
