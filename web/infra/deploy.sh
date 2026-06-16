@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROJECT="${KC_PROJECT:-kineticolor-cloud}"
+PROJECT="${KC_PROJECT:-mixinlab}"
 REGION="${KC_REGION:-us-central1}"
-BUCKET="${KC_BUCKET:-kineticolor-videos}"
+BUCKET="${KC_BUCKET:-mixinlab-videos}"
 REPO="kineticolor"
 OAUTH_CLIENT_ID="${KC_OAUTH_CLIENT_ID:?set KC_OAUTH_CLIENT_ID}"
 # Normalize paste artifacts: a bare client id, NOT a URL. Strip scheme + trailing slash.

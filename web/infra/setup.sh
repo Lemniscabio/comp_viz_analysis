@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROJECT="${KC_PROJECT:-kineticolor-cloud}"
+PROJECT="${KC_PROJECT:-mixinlab}"
 REGION="${KC_REGION:-us-central1}"
-BUCKET="${KC_BUCKET:-kineticolor-videos}"
+BUCKET="${KC_BUCKET:-mixinlab-videos}"
 REPO="kineticolor"
 BACKEND_SA="kc-backend@${PROJECT}.iam.gserviceaccount.com"
 WORKER_SA="kc-worker@${PROJECT}.iam.gserviceaccount.com"
