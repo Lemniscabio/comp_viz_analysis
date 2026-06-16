@@ -101,15 +101,23 @@ gcloud auth configure-docker "${KC_REGION}-docker.pkg.dev" --quiet
 bash "$HERE/deploy.sh"
 
 # ===========================================================================
-# Phase 3 — CORS to the live URL
+# Phase 3 — CORS to the live URL(s)
+# Cloud Run serves the service on TWO equivalent hostnames: the hash form
+# (status.url, *.a.run.app) and the project-number form
+# (kineticolor-app-<projectNumber>.<region>.run.app). Browsers send whichever
+# you visit as the Origin, so BOTH must be in the bucket CORS allowlist.
 # ===========================================================================
-URL="$(gcloud run services describe kineticolor-app --region "$KC_REGION" \
-        --format='value(status.url)')"
+URL_HASH="$(gcloud run services describe kineticolor-app --region "$KC_REGION" \
+            --format='value(status.url)')"
+PNUM="$(gcloud projects describe "$KC_PROJECT" --format='value(projectNumber)')"
+URL_PNUM="https://kineticolor-app-${PNUM}.${KC_REGION}.run.app"
 echo
-echo "== Phase 3: set bucket CORS to $URL =="
+echo "== Phase 3: set bucket CORS for both URLs =="
+echo "   $URL_HASH"
+echo "   $URL_PNUM"
 TMP_CORS="$(mktemp)"
 cat > "$TMP_CORS" <<EOF
-[ { "origin": ["$URL", "http://localhost:5173"],
+[ { "origin": ["$URL_HASH", "$URL_PNUM", "http://localhost:5173"],
     "method": ["GET", "PUT"], "responseHeader": ["Content-Type"], "maxAgeSeconds": 3600 } ]
 EOF
 gcloud storage buckets update "gs://${KC_BUCKET}" --cors-file="$TMP_CORS"
@@ -117,13 +125,15 @@ rm -f "$TMP_CORS"
 
 cat <<EOF
 
-✅ DEPLOYED.  Service URL:  $URL
+✅ DEPLOYED.  The service answers on BOTH of these URLs:
+   $URL_HASH
+   $URL_PNUM
 
-LAST STEP (one-time) — authorize the live URL for sign-in:
+LAST STEP (one-time) — authorize BOTH URLs for sign-in:
   https://console.cloud.google.com/apis/credentials?project=$KC_PROJECT
   -> open the "kineticolor-web" OAuth client
-  -> Authorized JavaScript origins -> ADD:  $URL
+  -> Authorized JavaScript origins -> ADD both URLs above
   -> SAVE
 
-Then open $URL and sign in with a @lemnisca.bio account.
+Then open either URL and sign in with a @lemnisca.bio account.
 EOF
