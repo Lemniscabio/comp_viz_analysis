@@ -11,25 +11,34 @@ async function req<T>(path: string, init: RequestInit = {}): Promise<T> {
   return r.json() as Promise<T>;
 }
 
-export interface UploadTarget { idx: number; filename: string; object_path: string; url: string; }
-export interface AllocateResp { job_id: string; uploads: UploadTarget[]; }
-export interface VideoStatus {
-  idx: number; filename: string; status: string; duration_s: number | null;
-  t_mix_90_s: number | null; t_mix_95_s: number | null; t_mix_99_s: number | null; error: string | null;
-}
-export interface JobStatus { job_id: string; status: string; video_count: number; videos: VideoStatus[]; }
-export interface ResultDoc {
-  duration_s: number; fps: number; frame_count: number;
-  levels: Record<string, number | null>;
-  series: Record<string, number[]>;
-}
+export interface UploadTarget { video_id: string; filename: string; object_path: string; initiate_url: string; }
+export interface Me { email: string; role: string | null; status: string; }
+export interface Video { video_id: string; filename: string; date: string; size_bytes: number; owner_email?: string; }
+export interface VideoStatus { idx: number; video_id: string; filename: string; status: string;
+  duration_s: number | null; t_mix_90_s: number | null; t_mix_95_s: number | null; t_mix_99_s: number | null; error: string | null; }
+export interface RunStatus { run_id: string; owner_email: string; status: string; video_count: number; videos: VideoStatus[]; }
+export interface ResultDoc { duration_s: number; fps: number; frame_count: number;
+  levels: Record<string, number | null>; series: Record<string, number[]>; }
+export interface ManagedUser { email: string; role: string | null; status: string; decided_by: string | null; }
 
 export const api = {
-  allocate: (files: string[]) => req<AllocateResp>("/api/jobs:allocate",
-    { method: "POST", body: JSON.stringify({ files }) }),
-  submit: (job_id: string) => req<JobStatus>("/api/jobs:submit",
-    { method: "POST", body: JSON.stringify({ job_id }) }),
-  status: (job_id: string) => req<JobStatus>(`/api/jobs/${job_id}`),
-  resultUrl: (job_id: string, idx: number) => req<{ url: string }>(`/api/jobs/${job_id}/result/${idx}`),
-  fetchResult: async (signedUrl: string) => (await fetch(signedUrl)).json() as Promise<ResultDoc>,
+  me: () => req<Me>("/api/me"),
+  myVideos: () => req<{ videos: Video[] }>("/api/me/videos"),
+  myRuns: () => req<{ runs: any[] }>("/api/me/runs"),
+  allocate: (files: { name: string; size: number }[]) =>
+    req<{ uploads: UploadTarget[] }>("/api/videos:allocate", { method: "POST", body: JSON.stringify({ files }) }),
+  finalize: (t: UploadTarget, size: number) =>
+    req<Video>(`/api/videos/${t.video_id}:finalize`, { method: "POST",
+      body: JSON.stringify({ video_id: t.video_id, filename: t.filename, object_path: t.object_path, size_bytes: size }) }),
+  listVideos: () => req<{ videos: Video[] }>("/api/videos"),
+  createRun: (video_ids: string[]) => req<RunStatus>("/api/runs", { method: "POST", body: JSON.stringify({ video_ids }) }),
+  listRuns: () => req<{ runs: RunStatus[] }>("/api/runs"),
+  run: (id: string) => req<RunStatus>(`/api/runs/${id}`),
+  resultUrl: (runId: string, videoId: string) => req<{ url: string }>(`/api/runs/${runId}/result/${videoId}`),
+  fetchResult: async (url: string) => (await fetch(url)).json() as Promise<ResultDoc>,
+  // admin
+  listUsers: () => req<{ users: ManagedUser[] }>("/api/admin/users"),
+  setUser: (email: string, body: { role?: string; status?: string }) =>
+    req<ManagedUser>(`/api/admin/users/${encodeURIComponent(email)}`, { method: "POST", body: JSON.stringify(body) }),
+  adminRuns: (user?: string) => req<{ runs: RunStatus[] }>(`/api/admin/runs${user ? `?user=${encodeURIComponent(user)}` : ""}`),
 };
