@@ -104,3 +104,9 @@ a:hover { text-decoration: underline; }
   .kc-spinner > i { animation: none; opacity: 0.4; }
   .kc-progress > span { transition: none; }
 }
+
+button[data-kc-btn]:active:not(:disabled) { transform: scale(0.97); }
+button[data-kc-btn]:focus-visible { outline: 2px solid var(--kc-accent); outline-offset: 2px; }
+@media (hover: hover) and (pointer: fine) {
+  button[data-kc-btn][data-variant="primary"]:hover:not(:disabled) { filter: brightness(1.06); }
+}
