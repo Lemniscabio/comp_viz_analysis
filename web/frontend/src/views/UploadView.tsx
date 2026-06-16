@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { api } from "../lib/api";
 import { uploadAll } from "../lib/upload";
+import { Button } from "../components/Button";
 
 export function UploadView() {
   const [files, setFiles] = useState<File[]>([]);
@@ -34,19 +35,30 @@ export function UploadView() {
       <div onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
            onDragLeave={() => setDrag(false)}
            onDrop={(e) => { e.preventDefault(); setDrag(false); add(e.dataTransfer.files); }}
-           style={{ border: `2px dashed ${drag ? "#7c3aed" : "#cbd5e1"}`, borderRadius: 12,
-                    padding: 36, textAlign: "center", background: drag ? "#faf5ff" : "#fafafa" }}>
+           style={{ border: `2px dashed ${drag ? "var(--kc-accent)" : "var(--kc-border)"}`, borderRadius: "var(--kc-radius)",
+                    padding: 36, textAlign: "center", background: drag ? "var(--kc-accent-weak)" : "var(--kc-surface)",
+                    transition: "border-color 150ms ease, background-color 150ms ease" }}>
         <p>Drag &amp; drop videos here, or</p>
         <input type="file" multiple accept="video/*" onChange={(e) => add(e.target.files)} />
       </div>
-      {files.map((f, i) => (
-        <div key={i} style={{ marginTop: 8, fontSize: 13 }}>
-          {f.name} — {(f.size / 1e6).toFixed(1)} MB {busy && `(${pct[i] ?? 0}%)`}
+      {files.length > 0 && (
+        <div className="kc-card" style={{ padding: "4px 16px", marginTop: 16 }}>
+          {files.map((f, i) => (
+            <div key={i} style={{ padding: "10px 0" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 6 }}>
+                <span>{f.name}</span>
+                <span style={{ color: "var(--kc-muted)" }}>
+                  {(f.size / 1e6).toFixed(1)} MB {busy && `· ${pct[i] ?? 0}%`}
+                </span>
+              </div>
+              {busy && <div className="kc-progress"><span style={{ width: `${pct[i] ?? 0}%` }} /></div>}
+            </div>
+          ))}
         </div>
-      ))}
-      <button disabled={busy || !files.length} onClick={run} style={{ marginTop: 16 }}>
+      )}
+      <Button loading={busy} disabled={!files.length} onClick={run} style={{ marginTop: 16 }}>
         {busy ? "Uploading…" : `Upload ${files.length || ""}`}
-      </button>
+      </Button>
       {msg && <p style={{ marginTop: 10 }}>{msg}</p>}
     </div>
   );
