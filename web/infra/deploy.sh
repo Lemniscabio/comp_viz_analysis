@@ -6,6 +6,15 @@ REGION="${KC_REGION:-us-central1}"
 BUCKET="${KC_BUCKET:-kineticolor-videos}"
 REPO="kineticolor"
 OAUTH_CLIENT_ID="${KC_OAUTH_CLIENT_ID:?set KC_OAUTH_CLIENT_ID}"
+# Normalize paste artifacts: a bare client id, NOT a URL. Strip scheme + trailing slash.
+OAUTH_CLIENT_ID="${OAUTH_CLIENT_ID#http://}"
+OAUTH_CLIENT_ID="${OAUTH_CLIENT_ID#https://}"
+OAUTH_CLIENT_ID="${OAUTH_CLIENT_ID%/}"
+case "$OAUTH_CLIENT_ID" in
+  *.apps.googleusercontent.com) : ;;
+  *) echo "ERROR: KC_OAUTH_CLIENT_ID must end in .apps.googleusercontent.com (got: $OAUTH_CLIENT_ID)" >&2; exit 1 ;;
+esac
+echo "Using OAuth client id: $OAUTH_CLIENT_ID"
 BACKEND_SA="kc-backend@${PROJECT}.iam.gserviceaccount.com"
 WORKER_SA="kc-worker@${PROJECT}.iam.gserviceaccount.com"
 AR="${REGION}-docker.pkg.dev/${PROJECT}/${REPO}"
