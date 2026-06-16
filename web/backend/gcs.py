@@ -44,8 +44,21 @@ class GcsService:
     def signed_get_url(self, object_path: str) -> str:
         return self._signed(object_path, "GET")
 
+    def signed_resumable_initiate_url(self, object_path: str, content_type: str = "application/octet-stream") -> str:
+        # V4 signed POST that the browser calls with header `x-goog-resumable: start`
+        # to open a resumable session; the session URI comes back in the Location header.
+        return self._bucket.blob(object_path).generate_signed_url(
+            version="v4", expiration=dt.timedelta(hours=2), method="POST",
+            headers={"x-goog-resumable": "start", "content-type": content_type},
+            service_account_email=self._signer_email, access_token=self._token())
+
     def upload_json(self, object_path: str, data: bytes) -> None:
         self._bucket.blob(object_path).upload_from_string(data, content_type="application/json")
 
     def exists(self, object_path: str) -> bool:
         return self._bucket.blob(object_path).exists()
+
+    def object_size(self, object_path: str) -> int | None:
+        blob = self._bucket.blob(object_path)
+        blob.reload()
+        return blob.size
