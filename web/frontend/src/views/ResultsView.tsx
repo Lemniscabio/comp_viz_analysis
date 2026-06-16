@@ -4,6 +4,8 @@ import { api, RunStatus, ResultDoc, VideoStatus } from "../lib/api";
 import { DeltaEChart } from "../components/DeltaEChart";
 import { MetricChart } from "../components/MetricChart";
 import { InfoHover } from "../components/InfoHover";
+import { Spinner } from "../components/Spinner";
+import { Skeleton } from "../components/Skeleton";
 import { DELTA_E_INFO, METRIC_INFO } from "../lib/tooltips";
 
 const CAP = 60;
@@ -15,11 +17,24 @@ function VideoResult({ runId, v }: { runId: string; v: VideoStatus }) {
     if (v.status !== "done") return;
     (async () => { const { url } = await api.resultUrl(runId, v.video_id); setDoc(await api.fetchResult(url)); })();
   }, [runId, v.video_id, v.status]);
-  if (v.status === "failed") return <div><b>{v.filename}</b> — failed: {v.error}</div>;
-  if (v.status !== "done" || !doc) return <div><b>{v.filename}</b> — {v.status}…</div>;
+  if (v.status === "failed") return (
+    <div className="kc-card" style={{ padding: 16, marginBottom: 16 }}>
+      <span className="kc-badge fail">▲ failed</span>{" "}
+      <b>{v.filename}</b> — failed: {v.error}
+    </div>
+  );
+  if (v.status !== "done" || !doc) return (
+    <div className="kc-card" style={{ padding: 16, marginBottom: 16 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+        <Spinner size={14} color="var(--kc-accent)" />
+        <span>{v.filename} — analyzing…</span>
+      </div>
+      <Skeleton width={640} height={320} radius={12} />
+    </div>
+  );
   const long = (v.duration_s ?? 0) > CAP, t = doc.series.timestamp;
   return (
-    <div style={{ borderTop: "1px solid #eee", padding: "16px 0" }}>
+    <div className="kc-card" style={{ padding: 16, marginBottom: 16 }}>
       <h3>{v.filename} <InfoHover info={DELTA_E_INFO} /></h3>
       <DeltaEChart result={doc} />
       <div style={{ margin: "8px 0" }}>
@@ -61,7 +76,7 @@ export function ResultsView() {
   }, [runId]);
   if (!run) return <p>Loading…</p>;
   return (
-    <div>
+    <div className="kc-stagger">
       <h2>Run {run.run_id} — {run.status}</h2>
       {run.videos.map((v) => <VideoResult key={v.video_id} runId={run.run_id} v={v} />)}
     </div>
