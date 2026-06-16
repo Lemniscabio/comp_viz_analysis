@@ -4,11 +4,11 @@ from typing import Any, Dict
 MAX_TASKS = 50  # cap fan-out to protect quota/cost
 
 
-def build_overrides(job_id: str, bucket: str, video_count: int) -> Dict[str, Any]:
+def build_overrides(run_id: str, bucket: str, video_count: int) -> Dict[str, Any]:
     if video_count < 1 or video_count > MAX_TASKS:
         raise ValueError(f"video_count {video_count} out of range 1..{MAX_TASKS}")
     return {"task_count": video_count, "container_overrides": [
-        {"env": [{"name": "JOB_ID", "value": job_id}, {"name": "BUCKET", "value": bucket}]}]}
+        {"env": [{"name": "RUN_ID", "value": run_id}, {"name": "BUCKET", "value": bucket}]}]}
 
 
 class JobRunner:
@@ -17,9 +17,9 @@ class JobRunner:
         self._client = run_v2.JobsClient()
         self._job_path = f"projects/{project}/locations/{region}/jobs/{job_name}"
 
-    def trigger(self, job_id: str, bucket: str, video_count: int) -> str:
+    def trigger(self, run_id: str, bucket: str, video_count: int) -> str:
         from google.cloud import run_v2
-        ov = build_overrides(job_id, bucket, video_count)
+        ov = build_overrides(run_id, bucket, video_count)
         overrides = run_v2.RunJobRequest.Overrides(
             task_count=ov["task_count"],
             container_overrides=[run_v2.RunJobRequest.Overrides.ContainerOverride(
