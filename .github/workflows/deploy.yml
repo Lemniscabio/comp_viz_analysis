@@ -20,7 +20,7 @@ jobs:
 
   deploy:
     needs: test
-    if: github.ref == 'refs/heads/feat/web-deploy'   # change to main once merged
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     env:
       PROJECT: mixinlab
