@@ -50,6 +50,7 @@ export function SelectView() {
         </div>
       )}
       {!loading && byDate.length > 0 && (
+        <div className="kc-scroll" style={{ maxHeight: 460, marginBottom: 16 }}>
         <div className="kc-stagger">
           {byDate.map(([date, vids]) => (
             <div key={date} className="kc-card" style={{ padding: "12px 16px", marginBottom: 12 }}>
@@ -62,6 +63,7 @@ export function SelectView() {
               ))}
             </div>
           ))}
+        </div>
         </div>
       )}
       <Button loading={busy} disabled={sel.size === 0} onClick={runAnalysis}>

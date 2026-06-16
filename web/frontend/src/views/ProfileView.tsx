@@ -33,6 +33,7 @@ function AdminUsers() {
       <h3>User management (admin)</h3>
       {err && <p style={{ color: "crimson" }}>{err}</p>}
       <div className="kc-card" style={{ overflow: "hidden" }}>
+        <div className="kc-scroll">
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
           <thead><tr style={{ textAlign: "left", color: "var(--kc-muted)" }}>
             <th style={{ padding: "10px 12px" }}>Email</th><th style={{ padding: "10px 12px" }}>Status</th><th style={{ padding: "10px 12px" }}>Role</th><th style={{ padding: "10px 12px" }}>Actions</th></tr></thead>
@@ -49,6 +50,7 @@ function AdminUsers() {
             </tr>))}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );
@@ -62,20 +64,44 @@ export function ProfileView() {
   const [videosLoading, setVideosLoading] = useState(true);
   useEffect(() => { api.listRuns().then((r) => setRuns(r.runs)).catch(() => {}).finally(() => setRunsLoading(false)); }, []);
   useEffect(() => { api.myVideos().then((r) => setVideos(r.videos)).catch(() => {}).finally(() => setVideosLoading(false)); }, []);
+  const uploadsByDate = useMemo(() => {
+    const m = new Map<string, Video[]>();
+    for (const v of videos) { if (!m.has(v.date)) m.set(v.date, []); m.get(v.date)!.push(v); }
+    return [...m.entries()].sort((a, b) => b[0].localeCompare(a[0]));
+  }, [videos]);
   return (
     <div>
       <h2>Profile — {me?.email}</h2>
       <section className="kc-card" style={{ padding: 16, marginBottom: 16 }}>
         <h3>My runs</h3>
-        {runsLoading ? <SkeletonRows rows={3} /> : runs.length === 0 ? <p>No runs.</p> : (
-          <ul>{runs.map((r) => <li key={r.run_id}>
-            <Link to={`/runs/${r.run_id}`}>{r.run_id}</Link> — {r.status} ({r.video_count} videos)
-          </li>)}</ul>)}
+        {runsLoading ? <SkeletonRows rows={3} /> : runs.length === 0 ? <p style={{ color: "var(--kc-muted)" }}>No runs.</p> : (
+          <div className="kc-scroll">
+            {runs.map((r) => (
+              <div key={r.run_id} className="kc-row" style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px", fontSize: 14 }}>
+                <Link to={`/runs/${r.run_id}`} style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.run_id}</Link>
+                <span className={`kc-badge ${r.status === "done" ? "done" : r.status === "failed" ? "fail" : "run"}`}>{r.status}</span>
+                <span style={{ color: "var(--kc-faint)", fontSize: 12 }}>{r.video_count} videos</span>
+              </div>
+            ))}
+          </div>)}
       </section>
       <section className="kc-card" style={{ padding: 16, marginBottom: 16 }}>
         <h3>My uploads</h3>
-        {videosLoading ? <SkeletonRows rows={3} /> : videos.length === 0 ? <p>No uploads.</p> : (
-          <ul>{videos.map((v) => <li key={v.video_id}>{v.date} — {v.filename}</li>)}</ul>)}
+        {videosLoading ? <SkeletonRows rows={3} /> : videos.length === 0 ? <p style={{ color: "var(--kc-muted)" }}>No uploads.</p> : (
+          <div className="kc-scroll">
+            {uploadsByDate.map(([date, vids]) => (
+              <div key={date} style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "var(--kc-faint)", textTransform: "uppercase", letterSpacing: ".04em", margin: "6px 4px" }}>{date} · {vids.length}</div>
+                {vids.map((v) => (
+                  <div key={v.video_id} className="kc-row" style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", fontSize: 14 }}>
+                    <span style={{ color: "var(--kc-faint)" }}>🎞</span>
+                    <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v.filename}</span>
+                    <span style={{ color: "var(--kc-faint)", fontSize: 12 }}>{(v.size_bytes / 1e6).toFixed(1)} MB</span>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>)}
       </section>
       {isAdmin(me) && <AdminUsers />}
     </div>

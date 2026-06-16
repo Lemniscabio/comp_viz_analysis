@@ -33,6 +33,7 @@ export function StatusView() {
       {!loading && runs.length === 0 && <p>No runs yet.</p>}
       {!loading && runs.length > 0 && (
         <div className="kc-card" style={{ overflow: "hidden" }}>
+          <div className="kc-scroll">
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
             <thead><tr style={{ textAlign: "left", color: "var(--kc-muted)" }}>
               <th style={{ padding: "10px 12px" }}>Run</th><th style={{ padding: "10px 12px" }}>Videos</th><th style={{ padding: "10px 12px" }}>Status</th><th style={{ padding: "10px 12px" }}>Done</th><th style={{ padding: "10px 12px" }}></th></tr></thead>
@@ -50,6 +51,7 @@ export function StatusView() {
               })}
             </tbody>
           </table>
+          </div>
         </div>
       )}
     </div>
