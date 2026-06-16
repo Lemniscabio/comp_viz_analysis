@@ -32,7 +32,10 @@ export async function resumableUpload(
   initiateUrl: string, file: File, onProgress?: (sent: number, total: number) => void,
 ): Promise<void> {
   const total = file.size;
-  const contentType = file.type || "application/octet-stream";
+  // MUST equal the content-type the backend signed into the initiate URL
+  // (gcs.signed_resumable_initiate_url defaults to application/octet-stream).
+  // A mismatch makes GCS reject the signed POST with 403.
+  const contentType = "application/octet-stream";
   let sessionUri = await openSession(initiateUrl, contentType);
   let offset = 0;
   while (offset < total) {
