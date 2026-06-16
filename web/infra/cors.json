@@ -1,4 +1,0 @@
-[
-  { "origin": ["https://kineticolor-app-REPLACEME.run.app", "http://localhost:5173"],
-    "method": ["GET", "PUT"], "responseHeader": ["Content-Type"], "maxAgeSeconds": 3600 }
-]

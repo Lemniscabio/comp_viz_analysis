@@ -30,7 +30,10 @@ for sa in kc-backend kc-worker kc-ci-deployer; do
   gcloud iam service-accounts create "$sa" 2>/dev/null || true
 done
 
-gcloud storage buckets update "gs://${BUCKET}" --cors-file="$(dirname "$0")/cors.json"
+# NOTE: CORS is intentionally NOT set here. The real Cloud Run URLs don't exist
+# until the first deploy, and bootstrap Phase 3 is the single source of truth for
+# the bucket CORS (correct URLs + resumable headers). Setting a placeholder here
+# would clobber the good CORS every time setup.sh runs.
 
 # Backend: sign URLs as itself, bucket-scoped storage, Firestore, trigger worker job
 gcloud iam service-accounts add-iam-policy-binding "$BACKEND_SA" \
