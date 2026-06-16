@@ -36,5 +36,8 @@ gcloud run deploy kineticolor-app --image "${AR}/backend:${SHA}" --region "$REGI
   --service-account "$BACKEND_SA" --allow-unauthenticated --cpu 1 --memory 512Mi \
   --set-env-vars "KC_PROJECT=${PROJECT},KC_REGION=${REGION},KC_BUCKET=${BUCKET},KC_OAUTH_CLIENT_ID=${OAUTH_CLIENT_ID},KC_ALLOWED_DOMAIN=lemnisca.bio,KC_WORKER_JOB=kineticolor-worker,KC_BACKEND_SA=${BACKEND_SA}" \
   --project "$PROJECT"
+# seed admins contains commas -> set with a non-comma delimiter
+gcloud run services update kineticolor-app --region "$REGION" --project "$PROJECT" \
+  --update-env-vars "^@@^KC_SEED_ADMINS=kartikey.attri@lemnisca.bio,laalchand.kumawat@lemnisca.bio"
 
 gcloud run services describe kineticolor-app --region "$REGION" --format='value(status.url)'

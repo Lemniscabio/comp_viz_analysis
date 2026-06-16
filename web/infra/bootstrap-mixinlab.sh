@@ -118,7 +118,9 @@ echo "   $URL_PNUM"
 TMP_CORS="$(mktemp)"
 cat > "$TMP_CORS" <<EOF
 [ { "origin": ["$URL_HASH", "$URL_PNUM", "http://localhost:5173"],
-    "method": ["GET", "PUT"], "responseHeader": ["Content-Type"], "maxAgeSeconds": 3600 } ]
+    "method": ["GET", "PUT", "POST"],
+    "responseHeader": ["Content-Type", "Location", "Range", "X-Goog-Resumable"],
+    "maxAgeSeconds": 3600 } ]
 EOF
 gcloud storage buckets update "gs://${KC_BUCKET}" --cors-file="$TMP_CORS"
 rm -f "$TMP_CORS"
