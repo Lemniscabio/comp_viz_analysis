@@ -3,28 +3,48 @@ from typing import List, Optional
 from pydantic import BaseModel
 
 
+class FileMeta(BaseModel):
+    name: str
+    size: int
+
+
 class AllocateReq(BaseModel):
-    files: List[str]
+    files: List[FileMeta]
 
 
 class UploadTarget(BaseModel):
-    idx: int
+    video_id: str
     filename: str
     object_path: str
-    url: str
+    initiate_url: str   # signed resumable-initiate (POST) URL
 
 
 class AllocateResp(BaseModel):
-    job_id: str
     uploads: List[UploadTarget]
 
 
-class SubmitReq(BaseModel):
-    job_id: str
+class FinalizeReq(BaseModel):
+    video_id: str
+    filename: str
+    object_path: str
+    size_bytes: int
+
+
+class VideoOut(BaseModel):
+    video_id: str
+    filename: str
+    date: str
+    size_bytes: int
+    owner_email: str
+
+
+class RunReq(BaseModel):
+    video_ids: List[str]
 
 
 class VideoStatus(BaseModel):
     idx: int
+    video_id: str
     filename: str
     status: str
     duration_s: Optional[float] = None
@@ -34,8 +54,27 @@ class VideoStatus(BaseModel):
     error: Optional[str] = None
 
 
-class JobStatus(BaseModel):
-    job_id: str
+class RunStatus(BaseModel):
+    run_id: str
+    owner_email: str
     status: str
     video_count: int
     videos: List[VideoStatus]
+
+
+class MeOut(BaseModel):
+    email: str
+    role: Optional[str]
+    status: str
+
+
+class SetUserReq(BaseModel):
+    role: Optional[str] = None
+    status: Optional[str] = None
+
+
+class ManagedUser(BaseModel):
+    email: str
+    role: Optional[str]
+    status: str
+    decided_by: Optional[str] = None
