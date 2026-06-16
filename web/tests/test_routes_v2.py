@@ -33,6 +33,15 @@ class FakeRunner:
     def trigger(self, run_id, bucket, n): self.triggered.append((run_id, n))
 
 
+class FakeUsers:
+    # current_account depends on get_user_repo; stub it so tests never build a
+    # real firestore.Client() (CI has no GCP credentials).
+    def get(self, e): return None
+    def upsert(self, r): pass
+    def list_all(self): return []
+    def set_decision(self, *a, **k): pass
+
+
 def client():
     app = m.create_app(dev_no_auth=True)
     g,v,r,rn = FakeGcs(),FakeVideos(),FakeRuns(),FakeRunner()
@@ -40,6 +49,7 @@ def client():
     app.dependency_overrides[m.get_video_repo]=lambda: v
     app.dependency_overrides[m.get_run_repo]=lambda: r
     app.dependency_overrides[m.get_runner]=lambda: rn
+    app.dependency_overrides[m.get_user_repo]=lambda: FakeUsers()
     return TestClient(app), g, v, r, rn
 
 
