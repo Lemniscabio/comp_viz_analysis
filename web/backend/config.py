@@ -3,6 +3,12 @@ import os
 from dataclasses import dataclass
 
 
+def _parse_seed_admins() -> list[str]:
+    raw = os.environ.get("KC_SEED_ADMINS",
+                         "kartikey.attri@lemnisca.bio,laalchand.kumawat@lemnisca.bio")
+    return [e.strip().lower() for e in raw.split(",") if e.strip()]
+
+
 @dataclass(frozen=True)
 class Settings:
     project: str
@@ -13,6 +19,7 @@ class Settings:
     worker_job: str
     backend_sa: str
     dev_no_auth: bool
+    seed_admins: list[str]
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -25,4 +32,5 @@ class Settings:
             worker_job=os.environ.get("KC_WORKER_JOB", "kineticolor-worker"),
             backend_sa=os.environ.get("KC_BACKEND_SA", ""),
             dev_no_auth=os.environ.get("KC_DEV_NO_AUTH", "") == "1",
+            seed_admins=_parse_seed_admins(),
         )
