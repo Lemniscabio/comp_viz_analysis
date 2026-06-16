@@ -1,5 +1,6 @@
 # --- Stage 1: build SPA ---
-FROM node:20-slim AS fe
+# node:22 (>=22.12) satisfies vite 8's engine requirement (^20.19 || >=22.12).
+FROM node:22-slim AS fe
 ARG VITE_OAUTH_CLIENT_ID
 WORKDIR /fe
 COPY web/frontend/package.json web/frontend/package-lock.json* ./

@@ -15,7 +15,7 @@ jobs:
       - run: pip install -r web/backend/requirements.txt -r web/worker/requirements.txt
       - run: python -m pytest web/tests/ -v
       - uses: actions/setup-node@v4
-        with: { node-version: "20" }
+        with: { node-version: "22" }
       - run: cd web/frontend && npm install && VITE_OAUTH_CLIENT_ID=ci npm run build
 
   deploy:
