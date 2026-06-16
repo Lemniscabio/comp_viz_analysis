@@ -32,3 +32,9 @@ def test_results_doc_shape_includes_series_and_levels():
     for key in ("contact_perimeter", "contrast", "homogeneity", "energy", "variance_delta_e"):
         assert key in doc["series"]
     assert doc["duration_s"] == 1.0
+
+
+def test_run_result_paths():
+    import web.worker.worker as w
+    assert w.result_json_path("run1", "vid9", "clip") == "runs/run1/results/vid9.json"
+    assert w.result_csv_path("run1", "vid9", "clip") == "runs/run1/results/vid9__clip.csv"

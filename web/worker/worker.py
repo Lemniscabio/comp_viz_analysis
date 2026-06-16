@@ -3,7 +3,7 @@
 Pipeline (main-based): download -> ffmpeg 480p -> main AnalysisEngine (all 6 metrics)
 -> main DataExporter CSV -> level_times() -> results JSON. Updates Firestore.
 
-Env vars (set at execution time): BUCKET, JOB_ID, CLOUD_RUN_TASK_INDEX (injected).
+Env vars (set at execution time): BUCKET, RUN_ID, CLOUD_RUN_TASK_INDEX (injected).
 """
 from __future__ import annotations
 
@@ -40,6 +40,14 @@ def select_video(manifest: Dict[str, Any], task_index: int) -> Dict[str, Any]:
         if entry["idx"] == task_index:
             return entry
     raise IndexError(f"no video with idx={task_index} in manifest")
+
+
+def result_json_path(run_id: str, video_id: str, stem: str) -> str:
+    return f"runs/{run_id}/results/{video_id}.json"
+
+
+def result_csv_path(run_id: str, video_id: str, stem: str) -> str:
+    return f"runs/{run_id}/results/{video_id}__{stem}.csv"
 
 
 def ffmpeg_480p_cmd(src: str, dst: str) -> List[str]:
@@ -80,17 +88,18 @@ def main() -> None:
     from src.utils.config_loader import load_config
 
     bucket_name = os.environ["BUCKET"]
-    job_id = os.environ["JOB_ID"]
+    run_id = os.environ["RUN_ID"]
     task_index = int(os.environ.get("CLOUD_RUN_TASK_INDEX", "0"))
 
     gcs = storage.Client()
     bucket = gcs.bucket(bucket_name)
     fs = firestore.Client()
-    job_ref = fs.collection("jobs").document(job_id)
+    job_ref = fs.collection("kc_runs").document(run_id)
 
-    manifest = json.loads(bucket.blob(f"jobs/{job_id}/manifest.json").download_as_text())
+    manifest = json.loads(bucket.blob(f"runs/{run_id}/manifest.json").download_as_text())
     entry = select_video(manifest, task_index)
-    idx, filename, object_path = entry["idx"], entry["filename"], entry["object_path"]
+    idx, video_id, filename, object_path = (entry["idx"], entry["video_id"], entry["filename"],
+                                            entry["object_path"])
     stem = Path(filename).stem
 
     _set_video(job_ref, idx, {"status": "running", "error": None})
@@ -119,10 +128,10 @@ def main() -> None:
 
             csv_local = Path(td) / "results.csv"
             DataExporter().export(engine.results, csv_local, fmt="csv")
-            bucket.blob(f"jobs/{job_id}/results/{idx}__{stem}.csv").upload_from_filename(str(csv_local))
+            bucket.blob(result_csv_path(run_id, video_id, stem)).upload_from_filename(str(csv_local))
 
             doc = results_doc(engine.results, duration_s=duration, fps=fps)
-            bucket.blob(f"jobs/{job_id}/results/{idx}.json").upload_from_string(
+            bucket.blob(result_json_path(run_id, video_id, stem)).upload_from_string(
                 json.dumps(doc), content_type="application/json")
 
         lv = doc["levels"]
