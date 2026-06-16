@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 def _parse_seed_admins() -> list[str]:
     raw = os.environ.get("KC_SEED_ADMINS",
-                         "kartikey.attri@lemnisca.bio,laalchand.kumawat@lemnisca.bio")
+                         "kartikey.attri@lemnisca.bio,laalchand.kumawat@lemnisca.bio,nikhil.bhamwani@lemnisca.bio")
     return [e.strip().lower() for e in raw.split(",") if e.strip()]
 
 

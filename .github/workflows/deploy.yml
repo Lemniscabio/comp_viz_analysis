@@ -65,4 +65,4 @@ jobs:
             --service-account kc-backend@$PROJECT.iam.gserviceaccount.com --allow-unauthenticated \
             --set-env-vars KC_PROJECT=$PROJECT,KC_REGION=$REGION,KC_BUCKET=$BUCKET,KC_OAUTH_CLIENT_ID=${{ vars.OAUTH_CLIENT_ID }},KC_ALLOWED_DOMAIN=lemnisca.bio,KC_WORKER_JOB=kineticolor-worker,KC_BACKEND_SA=kc-backend@$PROJECT.iam.gserviceaccount.com
           gcloud run services update kineticolor-app --region $REGION --project $PROJECT \
-            --update-env-vars "^@@^KC_SEED_ADMINS=kartikey.attri@lemnisca.bio,laalchand.kumawat@lemnisca.bio"
+            --update-env-vars "^@@^KC_SEED_ADMINS=kartikey.attri@lemnisca.bio,laalchand.kumawat@lemnisca.bio,nikhil.bhamwani@lemnisca.bio"

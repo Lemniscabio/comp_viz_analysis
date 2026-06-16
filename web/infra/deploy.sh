@@ -38,6 +38,6 @@ gcloud run deploy kineticolor-app --image "${AR}/backend:${SHA}" --region "$REGI
   --project "$PROJECT"
 # seed admins contains commas -> set with a non-comma delimiter
 gcloud run services update kineticolor-app --region "$REGION" --project "$PROJECT" \
-  --update-env-vars "^@@^KC_SEED_ADMINS=kartikey.attri@lemnisca.bio,laalchand.kumawat@lemnisca.bio"
+  --update-env-vars "^@@^KC_SEED_ADMINS=kartikey.attri@lemnisca.bio,laalchand.kumawat@lemnisca.bio,nikhil.bhamwani@lemnisca.bio"
 
 gcloud run services describe kineticolor-app --region "$REGION" --format='value(status.url)'
