@@ -1,286 +1,169 @@
 # Kineticolor
 
-**Branches:** `feat/mixing-time` holds experimental tests — cropping and downscaling videos and quantifying mixing time via several alternative methods. Kept for reference only; **`main` is canonical**. The cloud/web deployment on `feat/web-deploy` deliberately uses only this `main` branch's ΔE logic.
+Computer-vision measurement of **mixing time** in transparent lab reactors. Instead of a pH probe (which lags 10–20 s), Kineticolor watches a video of the vessel and measures how long the liquid takes to become visually homogeneous after a reagent is added.
 
-A computer vision desktop application for real-time kinetic analysis of mixing phenomena in reaction vessels.
+It does **not** understand chemistry. It tracks **colour change from a reference frame** (frame 0). When the colour stops changing — the metrics plateau — mixing is complete.
 
-Built for analyzing pH titration mixing in transparent bioreactors — replacing pH probes that have 10-20 second delay with real-time colorimetric feedback from video.
-
-**How it works:** The system tracks color change from a reference frame (frame 0) using 6 complementary metrics. When all metrics plateau, mixing is complete.
-
-Based on: *"Computer Vision for Kinetic Analysis of Lab- and Process-Scale Mixing Phenomena"* (Barrington et al., Org. Process Res. Dev. 2022, 26, 3073-3088).
+> Based on: Barrington, Dickinson, McGuire, Yan & Reid, *"Computer Vision for Kinetic Analysis of Lab- and Process-Scale Mixing Phenomena"*, Org. Process Res. Dev. 2022, 26, 3073–3088.
 
 ---
 
-## Installation
+## The core measurement
 
+For each video frame, the engine computes **six complementary metrics** inside a region of interest. The primary one is **ΔE** — the perceptual colour distance (CIE‑L\*a\*b\* Euclidean distance) of each frame's average colour from the reference frame.
+
+**Mixing time** is read off the ΔE curve:
+
+1. Normalise: `norm(t) = ΔE(t) / max(ΔE)` → a 0→1 curve.
+2. The mixing time at level **L** is the **first timestamp where `norm(t) ≥ L`**.
+3. Kineticolor reports **L = 0.90, 0.95, 0.99** (90/95/99 % of the way to the colour plateau).
+
+> **Accuracy note:** the ΔE *graph* is valid for any clip length, but the numeric mixing times are most reliable for **short clips (≤ ~60 s)**. For long, highly viscous, or dead‑zone‑prone reactions, treat the numbers as indicative and sanity‑check them against the curve.
+
+The other five metrics (Contact, GLCM Contrast/Homogeneity/Energy, cell Variance) are computed too and shown for context; see `config/default_config.yaml` for tunables (grid size, GLCM levels, thresholds, frame skip).
+
+---
+
+## Two ways to run it
+
+Kineticolor has **two interfaces that share the same analysis engine** (`src/core/`):
+
+| | Desktop app | Cloud web app |
+| --- | --- | --- |
+| Where | `src/` (PyQt6 GUI + CLI) | `web/` (deployed multi‑user product) |
+| Who | a single analyst on their machine | any `@lemnisca.bio` user, in a browser |
+| Use | live ROI selection, real‑time plots, CSV export | upload videos → analyse server‑side → view results |
+| Runs on | your computer | Google Cloud (Cloud Run) |
+
+`src/core/` has **zero dependency on the GUI** — it's a standalone, headless library that both the desktop CLI and the cloud worker import.
+
+---
+
+## A. Desktop app
+
+**Install**
 ```bash
-# Clone the repository
-git clone https://github.com/Lemniscabio/comp_viz_analysis.git
-cd comp_viz_analysis
-
-# Create a conda environment (recommended)
-conda create -n kineticolor python=3.12
-conda activate kineticolor
-
-# Install dependencies
 pip install -r requirements.txt
 ```
 
-### Requirements
-
-- Python 3.10+ (3.12 recommended)
-- OpenCV, NumPy, SciPy, scikit-image
-- PyQt6, pyqtgraph (for GUI)
-- matplotlib (for batch summary plots)
-- PyYAML, openpyxl (for config and export)
-- `ffmpeg` on PATH (for `scripts/downscale_videos.sh` only)
-
----
-
-## Three Ways to Use
-
-### 1. Desktop GUI (recommended)
-
+**GUI** (live feed / video playback, ROI drawing, real‑time metric plots):
 ```bash
-conda activate kineticolor
 python -m src.main
 ```
 
-This opens the full graphical application. Workflow:
+**Headless / CLI** (analyse one video → CSV time series):
+```bash
+python -m src.main --video path/to/clip.mp4 --output results.csv --config config/default_config.yaml
+```
 
-1. **Open Video** — load an MP4, AVI, or MOV file
-2. **Select ROI** (optional) — draw a rectangle around the region of interest (e.g., the liquid in the bioreactor). If skipped, the full frame is analyzed.
-3. **Draw Mask** (optional) — paint over areas to exclude from analysis (e.g., tubes, clamps, labels blocking the view)
-4. **Start Analysis** — runs all 6 metrics on every frame
-5. **Export Data** — save results to CSV or Excel
+**Batch** (folder of videos → one summary CSV, parallel):
+```bash
+python scripts/batch_analyze.py <video_dir> <output_dir> --workers 8
+```
 
-#### GUI Controls
+---
 
-| Control | What it does |
-|---------|-------------|
-| **Select ROI** | Draw a rectangle around the area to analyze. Drag inside to move, drag corners to resize. Click button again to clear. |
-| **Draw Mask** | Click and drag to paint exclusion areas (shown in red). Scroll wheel changes brush size. |
-| **Erase Mask** | Click and drag to restore previously masked areas. |
-| **Grid** | Toggle grid overlay showing the NxN cell divisions on the video. |
-| **Heatmap** | Toggle Delta-E heatmap overlay. Blue = little change from frame 0. Red = large color change. |
-| **Toggle Video** | Show/hide the video panel to give more space to plots. |
+## B. Cloud web app (`web/`)
 
-#### Configuration Controls
+A signed‑in `@lemnisca.bio` user uploads videos, the analysis runs server‑side (independent of their machine), and per‑video ΔE graphs + mixing times come back. Live on Google Cloud project **`mixinlab`**.
 
-| Setting | Default | What it changes |
-|---------|---------|----------------|
-| **Grid** | 5x5 | Number of cells for spatial analysis. More cells = finer resolution, fewer = faster. |
-| **Frame Skip** | 1 | Analyze every Nth frame. 1 = every frame. Higher = faster but less temporal detail. |
-| **GLCM Skip** | 1 | Recompute texture metrics (Contrast, Homogeneity, Energy) every Nth analyzed frame. These are the slowest metrics. Values hold steady between updates. |
-| **GLCM Levels** | 16 | Gray level quantization for texture analysis. 16 is the sweet spot (fast + robust). |
-| **Threshold** | 128 | Grayscale cutoff for the Contact metric (0-255). Pixels above = white, below = black. Contact counts the boundary between them. Adjust based on your liquid color. |
-| **Export** | csv | File format for data export (CSV or Excel). |
+### Architecture
 
-### 2. Command Line (headless)
+```
+Browser (React SPA, Google Sign-In)
+   │  resumable, chunked uploads via signed URLs (direct to GCS)
+   ▼
+Cloud Run service  "kineticolor-app"   (FastAPI + bundled SPA)
+   │  - verifies Google ID token, enforces hd == lemnisca.bio
+   │  - RBAC (pending → admin grants role); per-owner data scoping
+   │  - writes video/run metadata to Firestore
+   │  - triggers the worker Job (one task per selected video)
+   ▼
+Cloud Run Job  "kineticolor-worker"   (the headless engine in a container)
+   - task N downloads video N from GCS → ffmpeg 480p → AnalysisEngine
+   - writes results JSON + CSV to GCS, updates the run's Firestore doc
+   ▼
+GCS bucket  "mixinlab-videos"   +   Firestore (kc_users / kc_videos / kc_runs)
+```
+
+- **Compute:** analysis runs as a **Cloud Run Job** (one parallel task per video), fully decoupled from the browser — closing the tab doesn't stop it. Status is tracked in Firestore; the SPA polls.
+- **Uploads:** browser → GCS directly via **keyless V4 signed URLs**, using **resumable, chunked** transfers (16 MiB chunks) that resume on connection drops.
+- **Auth:** Google OAuth (consent screen is **External** because the project lives under the `pushkar-org` org, not `lemnisca.bio`). Access is restricted by the **backend**, which verifies the ID token's `hd == lemnisca.bio` claim.
+- **RBAC:** Firestore `kc_users`. Roles `admin / runner / viewer`, statuses `pending / active / disabled`. A new user who signs in is **pending** (no access) until an **admin** grants them a role. Seed admins (auto‑provisioned): `kartikey.attri@lemnisca.bio`, `laalchand.kumawat@lemnisca.bio`. Users see only their own videos/runs; admins can view across users and manage access.
+
+### The five screens
+1. **Upload** — drag‑and‑drop; videos persist to GCS grouped by date (upload ≠ analyse).
+2. **Select** — pick already‑uploaded videos (grouped by date) → **Run analysis**.
+3. **Status** — runs in progress: Running / Completed.
+4. **Results** — per‑video normalised ΔE graph with 0.90/0.95/0.99 markers, the mixing‑time numbers, and the other five metrics behind an expandable panel (hover ⓘ for paper‑grounded explanations).
+5. **Profile** — your run + upload history; for admins, a user‑management panel (approve pending users, assign roles).
+
+### Local development
+
+The backend serves the API; Vite serves the SPA with hot reload and proxies `/api` to it.
+
+> **Note:** this repo's folder path contains a `:` which breaks npm's PATH lookup. Run Vite **directly via node** (not `npm run dev` / `npm run build`).
 
 ```bash
-conda activate kineticolor
-python -m src.main --video path/to/video.mp4
+# 1) one-time, so the local backend can reach Firestore/GCS
+gcloud auth application-default login
+
+# 2) backend on :8080  (from repo root)
+KC_DEV_NO_AUTH=1 KC_PROJECT=mixinlab KC_REGION=us-central1 KC_BUCKET=mixinlab-videos \
+KC_BACKEND_SA=kc-backend@mixinlab.iam.gserviceaccount.com \
+<venv>/bin/python -m uvicorn web.backend.main:app --port 8080 --reload
+
+# 3) frontend on :5173  (from web/frontend)
+VITE_OAUTH_CLIENT_ID="<oauth-web-client-id>" node node_modules/vite/bin/vite.js
 ```
+`KC_DEV_NO_AUTH=1` skips token verification (returns a dev admin). Open http://localhost:5173.
 
-Runs the analysis without any GUI. Results are printed as a progress bar and exported to a file.
-
-#### CLI Flags
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--video` | (required) | Path to the video file to analyze. |
-| `--roi` | full frame | Region of interest as `x,y,w,h`. Example: `--roi 50,100,400,300` means start at 50px from left edge, 100px from top edge, grab a 400px wide by 300px tall rectangle. |
-| `--config` | `config/default_config.yaml` | Path to a YAML config file. |
-| `--output` | `results.csv` | Output file path. Use `.xlsx` extension for Excel format. |
-| `--reference-frame` | `0` | Which frame to use as the baseline for Delta-E. Default is the first frame. |
-
-#### Examples
-
+Python tests:
 ```bash
-# Analyze with default settings, export to CSV
-python -m src.main --video experiment.mp4
-
-# Analyze a specific region, export to Excel
-python -m src.main --video experiment.mp4 --roi 50,100,400,300 --output results.xlsx
-
-# Use custom config and different reference frame
-python -m src.main --video experiment.mp4 --config my_config.yaml --reference-frame 30
-
-# Skip frames for faster processing
-# (edit config/default_config.yaml and set frame_skip: 5)
-python -m src.main --video long_experiment.mp4
+<venv>/bin/python -m pytest web/tests/ -q
 ```
 
-### 3. Batch Scripts (for many videos)
+### Deploy
 
-Two helpers live in `scripts/` for processing a whole folder of experiments end-to-end.
-
-#### `downscale_videos.sh` — pre-process raw 4K captures
-
-Batch re-encodes every video in a folder to 480p and crops the top 1/3 (where the bioreactor lid / rig typically sits). Audio is stripped. Source fps is preserved.
-
+One script bootstraps everything for project `mixinlab`:
 ```bash
-bash scripts/downscale_videos.sh <input_dir> <output_dir> [scaler=lanczos] [crf=18]
-
-# Example
-bash scripts/downscale_videos.sh ~/Desktop/raw_videos ~/Desktop/videos_480p
+# first run prints how to create the OAuth Web client, then stops
+bash web/infra/bootstrap-mixinlab.sh
+# after creating the client, re-run with it to build + deploy + set CORS
+KC_OAUTH_CLIENT_ID="<client-id>" bash web/infra/bootstrap-mixinlab.sh
 ```
+It enables APIs, creates the bucket / Firestore / least‑privilege service accounts / Workload Identity Federation, builds & pushes the worker + backend images, deploys both, and sets the bucket CORS. The **only manual step** is creating the OAuth Web client in the console (consent screen **External**, published to "In production").
 
-- **scaler**: `lanczos` (default, sharp), `bicubic`, `bilinear`, `area` (best for large downscales), `neighbor`.
-- **crf**: 0 = lossless, 18 ≈ visually lossless (default), 23 = ffmpeg default, 28 = small/ugly.
-- **Resumable**: already-converted files in `<output_dir>` are skipped.
-- Output filenames: `<stem>_480p_cropped.mp4`.
-
-#### `batch_analyze.py` — run Kineticolor on every video
-
-Iterates a folder of (ideally pre-processed) videos and writes matching `<stem>.csv` + `<stem>.png` + `<stem>.log` into an output directory.
-
-```bash
-python scripts/batch_analyze.py <video_dir> <output_dir> [--config PATH]
-
-# Example
-python scripts/batch_analyze.py ~/Desktop/videos_480p ~/Desktop/mixing_results
-```
-
-Behavior:
-- **Sequential.** One video at a time. numpy / skimage / OpenCV already parallelize across all cores via BLAS/OpenMP, so one Python process saturates the CPU — running multiple in parallel would thrash without speedup.
-- **Resumable.** On re-run, any video whose CSV already exists in `<output_dir>` is skipped. Partial outputs from a failed video are deleted so the retry is clean.
-- **Per-video commit.** CSV + PNG are written to disk before moving to the next video; a crash mid-batch loses only the in-flight one.
-- **Summary PNG** per video: two-panel figure showing raw grand ΔE and normalized grand ΔE over time, with dotted reference lines at 0.90 / 0.95 / 0.99.
-- **Mixing-time placeholder in CSV.** Every CSV gets a commented header block prepended:
-  ```
-  # mixing_time_t90 = TBD
-  # mixing_time_t95 = TBD
-  # mixing_time_t99 = TBD
-  # quantification_rule = TBD  (grand_delta_e / max_cell_delta_e / combined)
-  ```
-  The computation is stubbed in `_compute_mixing_times()` inside the script — uncomment once a quantification rule is chosen.
-
-**Tip for overnight / lid-closed runs (macOS):** start an Amphetamine session with "Allow system sleep when display is closed" unchecked, plug in power, then launch the script. The process keeps running with the lid shut.
+**CI/CD:** pushing to `main` triggers `.github/workflows/deploy.yml` — it runs the test suite, then (via WIF, no stored keys) builds + deploys. Requires one repo **Variable**: `OAUTH_CLIENT_ID`.
 
 ---
 
-## The 6 Mixing Metrics
-
-The system does NOT understand chemistry. It tracks visual changes using these 6 complementary metrics:
-
-### 1. Delta-E (Color Distance)
-Measures perceptual color change from the reference frame, per pixel, in CIE-L\*a\*b\* color space. The single most important metric. When Delta-E plateaus, the color has stabilized.
-
-### 2. Contact (Binary Perimeter)
-Counts the boundary between "light" and "dark" regions after thresholding. Rises during mixing (heterogeneous zones appear), falls when mixing completes (uniform color).
-
-### 3. Contrast (from GLCM)
-How much gray-level variation exists between neighboring pixels. High during active mixing, drops to near-zero when homogeneous.
-
-### 4. Homogeneity (from GLCM)
-Inverse of contrast conceptually. High = uniform/well-mixed. Low = heterogeneous/mixing in progress.
-
-### 5. Energy / ASM (from GLCM)
-Amount of "block color" uniformity. Reaches maximum when mixing is complete and the vessel has one dominant color.
-
-### 6. Variance (Cell-based)
-Spatial variation of average color across grid cells, computed for all 7 channels (R, G, B, L\*, a\*, b\*, Delta-E). High = different parts of the vessel have different colors. Drops as mixing completes.
-
-**Note:** Contrast, Homogeneity, and Energy all share the same GLCM (Gray-Level Co-occurrence Matrix), which is computed once per frame for efficiency.
-
----
-
-## Configuration
-
-All parameters are in `config/default_config.yaml`:
-
-```yaml
-frame_skip: 1              # Analyze every Nth frame
-glcm_frame_skip: 1         # GLCM-specific frame skip
-grid_rows: 5               # Grid rows for spatial analysis
-grid_cols: 5               # Grid columns
-glcm_gray_levels: 16       # Gray level quantization (16 recommended)
-glcm_offset: [1, 1]        # Pixel pair offset for GLCM
-contact_threshold: 128     # Binary threshold for Contact metric
-export_format: "csv"       # csv or xlsx
-```
-
-These can also be changed at runtime through the GUI controls.
-
----
-
-## Output Data
-
-The exported CSV/Excel file contains one row per analyzed frame with these columns:
-
-| Column | Description |
-|--------|-------------|
-| `frame_number` | Zero-based frame index |
-| `timestamp` | Time in seconds |
-| `grand_delta_e` | Average color distance from reference frame |
-| `contact_perimeter` | Boundary length between light/dark regions |
-| `contrast` | Texture contrast from GLCM |
-| `homogeneity` | Texture homogeneity from GLCM |
-| `energy` | Texture energy/ASM from GLCM |
-| `variance_r`, `_g`, `_b` | Spatial variance per RGB channel |
-| `variance_l`, `_a`, `_b_star` | Spatial variance per L\*a\*b\* channel |
-| `variance_delta_e` | Spatial variance of per-cell Delta-E |
-
----
-
-## Project Structure
+## Repository layout
 
 ```
-comp_viz_analysis/
-  src/
-    main.py                    # Entry point (GUI or CLI)
-    core/                      # Computation engine (no GUI dependency)
-      video_reader.py          # Video file reading
-      frame_processor.py       # ROI cropping, masking, color conversion
-      grid_analyzer.py         # NxN cell grid decomposition
-      analysis_engine.py       # Orchestrates all metrics per frame
-      export.py                # CSV/Excel export
-      metrics/
-        delta_e.py             # Delta-E color distance
-        contact.py             # Binary threshold perimeter
-        glcm.py                # GLCM matrix builder (shared)
-        contrast.py            # Contrast from GLCM
-        homogeneity.py         # Homogeneity from GLCM
-        energy.py              # Energy/ASM from GLCM
-        variance.py            # Cell-based color variance
-    gui/                       # Desktop GUI (depends on core, never reverse)
-      main_window.py           # Main application window
-      video_panel.py           # Video display with overlays
-      controls_panel.py        # Buttons, sliders, dropdowns
-      plots_panel.py           # 6 real-time metric charts
-      roi_selector.py          # ROI rectangle + mask brush tools
-      heatmap_overlay.py       # Delta-E heatmap visualization
-      analysis_worker.py       # Background thread for analysis
-    utils/
-      logger.py                # Centralized logging
-      color_convert.py         # RGB <-> CIE-L*a*b* conversion
-      config_loader.py         # YAML config with validation
-  config/
-    default_config.yaml        # Default parameters
-  scripts/
-    downscale_videos.sh        # Batch ffmpeg: crop top 1/3 + downscale to 480p
-    batch_analyze.py           # Batch Kineticolor runner (CSV + PNG per video)
-  tests/                       # Unit + integration tests
+src/                 Desktop app + the shared analysis engine
+  core/              Headless engine: metrics/, analysis_engine.py, export.py, video_reader.py  (NO GUI deps)
+  gui/               PyQt6 interface
+  utils/             config loader, logging, colour helpers
+  main.py            CLI / GUI entry point
+config/              default_config.yaml (tunable parameters)
+scripts/             batch_analyze.py, downscale helpers
+tests/               engine + metric tests (pytest)
+web/                 Cloud web app
+  worker/            Cloud Run Job: ffmpeg + engine + level-crossing logic
+  backend/           FastAPI: auth, rbac, videos, runs, admin, signed URLs
+  frontend/          React + Vite + TypeScript SPA (5 screens)
+  infra/             bootstrap-mixinlab.sh, setup.sh, deploy.sh
+docs/superpowers/plans/   Implementation plans (build history for each layer)
+.github/workflows/   deploy.yml (test + WIF deploy on push to main)
 ```
 
-**Architecture rule:** `core/` has zero dependency on `gui/`. The core engine works as a standalone library for headless analysis.
+### Key env vars (web)
+`KC_PROJECT` · `KC_REGION` · `KC_BUCKET` · `KC_OAUTH_CLIENT_ID` · `KC_ALLOWED_DOMAIN` · `KC_WORKER_JOB` · `KC_BACKEND_SA` · `KC_SEED_ADMINS` · `KC_THREADS` (worker CPU) · `KC_DEV_NO_AUTH` (local only).
 
 ---
 
-## Running Tests
+## Branches
 
-```bash
-conda activate kineticolor
-pytest tests/ -v
-```
-
-60 tests covering all metrics, frame processing, grid analysis, config loading, and end-to-end integration.
-
----
-
-## Cross-Platform
-
-Built with PyQt6 (Qt framework). Runs on macOS, Windows, and Linux without code changes.
+- **`main`** — canonical. The desktop app + the deployed cloud web app.
+- **`feat/mixing-time`** — experimental: tests around cropping/downscaling videos and quantifying mixing time via several alternative methods. Kept for reference only; `main` is authoritative.
