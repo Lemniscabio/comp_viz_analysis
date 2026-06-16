@@ -5,7 +5,7 @@
 // the `Range`/`Location` response headers — which silently stalls the upload at
 // 0%. XHR reports the real status code (incl. 308) and headers, and gives true
 // per-chunk upload progress.
-const CHUNK = 8 * 1024 * 1024; // 8 MiB
+const CHUNK = 16 * 1024 * 1024; // 16 MiB
 
 interface XhrResult { status: number; range: string | null; location: string | null; }
 
