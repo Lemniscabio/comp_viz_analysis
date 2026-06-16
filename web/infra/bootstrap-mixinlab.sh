@@ -67,7 +67,16 @@ ACTION REQUIRED — create an OAuth 2.0 Web client, then re-run this script.
 
  1. Open: https://console.cloud.google.com/apis/credentials?project=$KC_PROJECT
  2. (first time only) Configure the OAuth consent screen:
-       User type: Internal   (so only your Workspace org can sign in)
+       User type: EXTERNAL
+         NOTE: this project is in the "pushkar-org" organization (not lemnisca.bio),
+         so "Internal" is NOT available — pick External. Access is still restricted
+         to lemnisca.bio: the BACKEND verifies the Google ID token's hd==lemnisca.bio
+         claim and 403s everyone else. (External consent + app-level hd gate is the
+         same pattern used by the NEW_GCP app.)
+       Publishing status: PUBLISH / "In production"
+         Scopes are only openid/email/profile (non-sensitive), so NO Google app
+         verification is required. If left in "Testing", only emails you add as
+         Test users can sign in — publishing to production lifts that limit.
  3. + CREATE CREDENTIALS -> OAuth client ID
        Application type : Web application
        Name            : kineticolor-web
