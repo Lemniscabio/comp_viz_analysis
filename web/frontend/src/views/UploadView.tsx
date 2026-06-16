@@ -19,7 +19,8 @@ export function UploadView() {
       const { uploads } = await api.allocate(files.map((f) => ({ name: f.name, size: f.size })));
       const byName = new Map(files.map((f) => [f.name, f]));
       const items = uploads.map((u) => ({ initiateUrl: u.initiate_url, file: byName.get(u.filename)! }));
-      await uploadAll(items, 3, (i, sent, total) =>
+      // Serial: one video at a time so each gets the full uplink (faster per-file, stabler).
+      await uploadAll(items, 1, (i, sent, total) =>
         setPct((p) => { const n = [...p]; n[i] = Math.round((100 * sent) / total); return n; }));
       for (const u of uploads) await api.finalize(u, byName.get(u.filename)!.size);
       setMsg(`Uploaded ${uploads.length} video(s). Go to Select to analyze.`);
