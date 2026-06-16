@@ -31,7 +31,11 @@ jobs:
       - uses: actions/checkout@v4
       - name: Guard OAUTH_CLIENT_ID
         run: |
-          if [ -z "${{ vars.OAUTH_CLIENT_ID }}" ]; then echo "::error::OAUTH_CLIENT_ID Variable missing"; exit 1; fi
+          CID="${{ vars.OAUTH_CLIENT_ID }}"
+          if ! printf '%s' "$CID" | grep -qE '^[0-9]+-[a-z0-9]+\.apps\.googleusercontent\.com$'; then
+            echo "::error::OAUTH_CLIENT_ID is missing or malformed. Must look like 12345-abc.apps.googleusercontent.com (no spaces, ellipsis, http:// or trailing slash). Got: '$CID'"
+            exit 1
+          fi
       - uses: google-github-actions/auth@v2
         with:
           project_id: mixinlab
