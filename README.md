@@ -4,7 +4,7 @@ Computer-vision measurement of **mixing time** in transparent lab reactors. Inst
 
 It does **not** understand chemistry. It tracks **colour change from a reference frame** (frame 0). When the colour stops changing — the metrics plateau — mixing is complete.
 
-> Based on: Barrington, Dickinson, McGuire, Yan & Reid, *"Computer Vision for Kinetic Analysis of Lab- and Process-Scale Mixing Phenomena"*, Org. Process Res. Dev. 2022, 26, 3073–3088.
+> Based on: Barrington, Dickinson, McGuire, Yan & Reid, *"Computer Vision for Kinetic Analysis of Lab- and Process-Scale Mixing Phenomena"*, Org. Process Res. Dev. 2022, 26, 3073–3088. The paper is included in this repo: [`docs/computer-vision-for-kinetic-analysis-of-lab-and-process-scale-mixing-phenomena.pdf`](docs/computer-vision-for-kinetic-analysis-of-lab-and-process-scale-mixing-phenomena.pdf).
 
 ---
 
@@ -154,7 +154,7 @@ web/                 Cloud web app
   backend/           FastAPI: auth, rbac, videos, runs, admin, signed URLs
   frontend/          React + Vite + TypeScript SPA (5 screens)
   infra/             bootstrap-mixinlab.sh, setup.sh, deploy.sh
-docs/superpowers/plans/   Implementation plans (build history for each layer)
+docs/                The source paper (PDF) + docs/superpowers/plans/ implementation plans (build history)
 .github/workflows/   deploy.yml (test + WIF deploy on push to main)
 ```
 
