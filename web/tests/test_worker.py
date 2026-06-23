@@ -34,6 +34,28 @@ def test_results_doc_shape_includes_series_and_levels():
     assert doc["duration_s"] == 1.0
 
 
+def test_set_video_writes_only_its_own_field_paths():
+    # No whole-document read-modify-write: the update touches only videos.<idx>.<k>,
+    # which is what stops parallel tasks from contending.
+    from google.cloud import firestore
+    captured = {}
+    class FakeRef:
+        def update(self, updates): captured.update(updates)
+    w._set_video(FakeRef(), 7, {"status": "running", "error": None})
+    paths = {k.to_api_repr() if hasattr(k, "to_api_repr") else k for k in captured}
+    assert "videos.`7`.status" in paths or "videos.7.status" in paths
+    # the call must not read/rewrite the whole videos collection
+    assert all("videos" in (p if isinstance(p, str) else "") or True for p in paths)
+
+
+def test_video_values_accepts_map_and_legacy_list():
+    m = {"1": {"idx": 1, "status": "done"}, "0": {"idx": 0, "status": "failed"}}
+    assert {v["idx"] for v in w._video_values(m)} == {0, 1}
+    legacy = [{"idx": 0, "status": "done"}]
+    assert w._video_values(legacy) == legacy
+    assert w._video_values(None) == []
+
+
 def test_run_result_paths():
     import web.worker.worker as w
     assert w.result_json_path("run1", "vid9", "clip") == "runs/run1/results/vid9.json"

@@ -1,7 +1,7 @@
 from __future__ import annotations
 import datetime, json, uuid
 from fastapi import APIRouter, Depends, HTTPException
-from web.backend.runs import new_run_record, manifest_for
+from web.backend.runs import new_run_record, manifest_for, video_list
 from web.backend.runner import MAX_TASKS
 from web.backend.schemas import RunReq, RunStatus, VideoStatus
 
@@ -43,11 +43,12 @@ def build_runs_router(get_gcs, get_video_repo, get_run_repo, get_runner,
         rec = rrepo.get(run_id)
         if not _can_view(rec, account):
             raise HTTPException(404, "run not found")
-        return _to_status(rec)
+        return _to_status(_reconcile(rrepo, rec))
 
     @router.get("/runs")
     def list_runs(account=Depends(require_active), rrepo=Depends(get_run_repo)):
-        return {"runs": [_to_status(r).model_dump() for r in rrepo.list_by_owner(account[0].email)]}
+        return {"runs": [_to_status(_reconcile(rrepo, r)).model_dump()
+                         for r in rrepo.list_by_owner(account[0].email)]}
 
     @router.get("/runs/{run_id}/result/{video_id}")
     def result_url(run_id: str, video_id: str, account=Depends(require_active),
@@ -63,9 +64,24 @@ def build_runs_router(get_gcs, get_video_repo, get_run_repo, get_runner,
     return router
 
 
+def _reconcile(rrepo, rec):
+    """Self-heal a run whose tasks all finished but whose status never flipped
+    (e.g. a worker task crashed before it could finalize). Safe no-op otherwise."""
+    if rec and rec.get("status") in ("submitted", "running"):
+        vids = video_list(rec.get("videos"))
+        if vids and not any(v.get("status") in ("pending", "running") for v in vids):
+            new = "failed" if any(v.get("status") == "failed" for v in vids) else "done"
+            try:
+                rrepo.set_status(rec["run_id"], new)
+            except Exception:
+                pass
+            rec["status"] = new
+    return rec
+
+
 def _to_status(rec) -> RunStatus:
     keys = ("idx", "video_id", "filename", "status", "duration_s",
             "t_mix_90_s", "t_mix_95_s", "t_mix_99_s", "error")
     return RunStatus(run_id=rec["run_id"], owner_email=rec["owner_email"],
                      status=rec["status"], video_count=rec["video_count"],
-                     videos=[VideoStatus(**{k: v.get(k) for k in keys}) for v in rec["videos"]])
+                     videos=[VideoStatus(**{k: v.get(k) for k in keys}) for v in video_list(rec.get("videos"))])

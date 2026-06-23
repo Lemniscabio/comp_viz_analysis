@@ -1,6 +1,7 @@
 from __future__ import annotations
 from fastapi import APIRouter, Depends
 from web.backend.schemas import MeOut
+from web.backend.routes_runs import _to_status, _reconcile
 
 
 def build_me_router(current_account, get_video_repo, get_run_repo):
@@ -19,6 +20,7 @@ def build_me_router(current_account, get_video_repo, get_run_repo):
 
     @router.get("/me/runs")
     def my_runs(account=Depends(current_account), rrepo=Depends(get_run_repo)):
-        return {"runs": rrepo.list_by_owner(account[0].email)}
+        return {"runs": [_to_status(_reconcile(rrepo, r)).model_dump()
+                         for r in rrepo.list_by_owner(account[0].email)]}
 
     return router

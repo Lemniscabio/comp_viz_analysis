@@ -12,15 +12,24 @@ class RunRecord:
     created_at: datetime.datetime
     status: str
     video_count: int
-    videos: list[dict] = field(default_factory=list)
+    # Map keyed by str(idx). A map (not an array) lets each parallel worker task
+    # update ONLY its own field path (videos.<idx>.status) — no whole-document
+    # read-modify-write, hence no cross-transaction contention under fan-out.
+    videos: dict[str, dict] = field(default_factory=dict)
+
+
+def video_list(videos) -> list[dict]:
+    """Videos sorted by idx. Accepts the map schema or the legacy array schema."""
+    items = videos.values() if isinstance(videos, dict) else (videos or [])
+    return sorted(items, key=lambda v: v.get("idx", 0))
 
 
 def new_run_record(run_id, owner_email, video_recs, now) -> RunRecord:
-    videos = [{
+    videos = {str(i): {
         "idx": i, "video_id": v.video_id, "filename": v.filename,
         "object_path": v.gcs_path, "status": "pending", "duration_s": None,
         "t_mix_90_s": None, "t_mix_95_s": None, "t_mix_99_s": None, "error": None
-    } for i, v in enumerate(video_recs)]
+    } for i, v in enumerate(video_recs)}
     return RunRecord(run_id=run_id, owner_email=owner_email.lower(), created_at=now,
                      status="submitted", video_count=len(videos), videos=videos)
 
@@ -28,7 +37,7 @@ def new_run_record(run_id, owner_email, video_recs, now) -> RunRecord:
 def manifest_for(rec: RunRecord) -> dict:
     return {"videos": [{"idx": v["idx"], "video_id": v["video_id"],
                         "filename": v["filename"], "object_path": v["object_path"]}
-                       for v in rec.videos]}
+                       for v in video_list(rec.videos)]}
 
 
 class FirestoreRunRepository:
@@ -44,6 +53,9 @@ class FirestoreRunRepository:
     def get(self, run_id) -> Optional[dict]:
         snap = self._c.collection(self._col).document(run_id).get()
         return snap.to_dict() if snap.exists else None
+
+    def set_status(self, run_id, status):
+        self._c.collection(self._col).document(run_id).update({"status": status})
 
     def list_by_owner(self, email):
         q = self._c.collection(self._col).where("owner_email", "==", email.lower())

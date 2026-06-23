@@ -24,6 +24,7 @@ class FakeRuns:
     def create(self, r):
         import dataclasses; self.db[r.run_id]=dataclasses.asdict(r)
     def get(self, r): return self.db.get(r)
+    def set_status(self, r, status): self.db[r]["status"]=status
     def list_by_owner(self, e): return [x for x in self.db.values() if x["owner_email"]==e.lower()]
     def list_all(self): return list(self.db.values())
 
@@ -95,6 +96,23 @@ def test_admin_can_view_foreign_run():
     assert body["owner_email"] == "someoneelse@lemnisca.bio"
     assert body["videos"][0]["status"] == "failed"
     assert body["videos"][0]["error"] == "boom"
+
+
+def test_get_run_self_heals_stuck_status():
+    # A run stuck on "running" whose videos are all terminal must reconcile to a
+    # terminal status on read (the regression that left runs hung at 17/22).
+    import dataclasses, datetime
+    from web.backend.runs import RunRecord
+    c,g,v,r,rn = client()
+    rec = RunRecord(run_id="stuck01", owner_email="dev@local", created_at=datetime.datetime(2026,1,1,tzinfo=datetime.timezone.utc),
+                    status="running", video_count=2,
+                    videos={"0":{"idx":0,"video_id":"a","filename":"a.mp4","object_path":"p","status":"done","duration_s":1.0,"t_mix_90_s":None,"t_mix_95_s":None,"t_mix_99_s":None,"error":None},
+                            "1":{"idx":1,"video_id":"b","filename":"b.mp4","object_path":"p","status":"failed","duration_s":None,"t_mix_90_s":None,"t_mix_95_s":None,"t_mix_99_s":None,"error":"boom"}})
+    r.db[rec.run_id]=dataclasses.asdict(rec)
+    body = c.get("/api/runs/stuck01").json()
+    assert body["status"] == "failed"          # any failure -> run failed
+    assert r.db["stuck01"]["status"] == "failed"  # persisted, not just in the response
+    assert [vv["idx"] for vv in body["videos"]] == [0, 1]  # map serialized in idx order
 
 
 def test_finalize_rejects_foreign_path():

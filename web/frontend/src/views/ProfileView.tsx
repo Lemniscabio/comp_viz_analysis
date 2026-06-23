@@ -56,6 +56,65 @@ function AdminUsers() {
   );
 }
 
+function AdminRuns() {
+  const [runs, setRuns] = useState<RunStatus[]>([]);
+  const [owner, setOwner] = useState<string>("");
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const tick = async () => {
+      try { const r = await api.adminRuns(); if (alive) setRuns(r.runs); }
+      catch (e) { if (alive) setErr(String(e)); }
+      if (alive) setLoading(false);
+      if (alive) setTimeout(tick, 6000);
+    };
+    tick(); return () => { alive = false; };
+  }, []);
+  const owners = useMemo(() => [...new Set(runs.map((r) => r.owner_email))].sort(), [runs]);
+  const shown = useMemo(() => owner ? runs.filter((r) => r.owner_email === owner) : runs, [runs, owner]);
+  return (
+    <div style={{ marginTop: 24 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
+        <h3 style={{ margin: 0 }}>All runs (admin)</h3>
+        <select value={owner} onChange={(e) => setOwner(e.target.value)} style={{ marginLeft: "auto" }}>
+          <option value="">All users ({runs.length})</option>
+          {owners.map((o) => <option key={o} value={o}>{o}</option>)}
+        </select>
+      </div>
+      {err && <p style={{ color: "crimson" }}>{err}</p>}
+      <div className="kc-card" style={{ overflow: "hidden" }}>
+        <div className="kc-scroll">
+          {loading ? <div style={{ padding: 16 }}><SkeletonRows rows={4} /></div> :
+           shown.length === 0 ? <p style={{ padding: 16, color: "var(--kc-muted)" }}>No runs.</p> : (
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
+              <thead><tr style={{ textAlign: "left", color: "var(--kc-muted)" }}>
+                <th style={{ padding: "10px 12px" }}>Run</th><th style={{ padding: "10px 12px" }}>Owner</th>
+                <th style={{ padding: "10px 12px" }}>Videos</th><th style={{ padding: "10px 12px" }}>Status</th>
+                <th style={{ padding: "10px 12px" }}>Done</th><th style={{ padding: "10px 12px" }}></th></tr></thead>
+              <tbody>
+                {shown.map((r) => {
+                  const done = r.videos.filter((v) => v.status === "done" || v.status === "failed").length;
+                  return (
+                    <tr key={r.run_id} style={{ borderTop: "1px solid var(--kc-border)" }}>
+                      <td style={{ padding: "10px 12px" }}>{r.run_id}</td>
+                      <td style={{ padding: "10px 12px" }}>{r.owner_email}</td>
+                      <td style={{ padding: "10px 12px" }}>{r.video_count}</td>
+                      <td style={{ padding: "10px 12px" }}>
+                        <span className={`kc-badge ${r.status === "done" ? "done" : r.status === "failed" ? "fail" : "run"}`}>{r.status}</span></td>
+                      <td style={{ padding: "10px 12px" }}>{done}/{r.video_count}</td>
+                      <td style={{ padding: "10px 12px" }}><Link to={`/runs/${r.run_id}`}>view results</Link></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function ProfileView() {
   const me = useMe();
   const [runs, setRuns] = useState<RunStatus[]>([]);
@@ -103,6 +162,7 @@ export function ProfileView() {
             ))}
           </div>)}
       </section>
+      {isAdmin(me) && <AdminRuns />}
       {isAdmin(me) && <AdminUsers />}
     </div>
   );

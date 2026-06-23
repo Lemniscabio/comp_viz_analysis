@@ -17,9 +17,11 @@ for _v in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
     os.environ.setdefault(_v, _threads)
 
 import json
+import random
 import subprocess
 import sys
 import tempfile
+import time
 import traceback
 from pathlib import Path
 from typing import Any, Dict, List, Sequence
@@ -102,10 +104,13 @@ def main() -> None:
                                             entry["object_path"])
     stem = Path(filename).stem
 
-    _set_video(job_ref, idx, {"status": "running", "error": None})
-    config = load_config()  # repo default_config.yaml — all six metrics, unchanged from main
-
+    # Everything that can fail lives inside the try, so a crash here ALWAYS lands
+    # the video in a terminal state (failed) and ALWAYS attempts finalize (finally).
+    # Otherwise a task that dies before writing a terminal status leaves the run
+    # hung on "running" forever (no video is done/failed -> finalize is a no-op).
     try:
+        _set_video(job_ref, idx, {"status": "running", "error": None})
+        config = load_config()  # repo default_config.yaml — all six metrics, unchanged from main
         with tempfile.TemporaryDirectory() as td:
             raw = Path(td) / filename
             small = Path(td) / f"480p_{stem}.mp4"
@@ -142,28 +147,49 @@ def main() -> None:
         })
     except subprocess.CalledProcessError as e:
         traceback.print_exc()
-        _set_video(job_ref, idx, {"status": "failed",
-                                  "error": f"ffmpeg failed: {e.stderr.decode()[:300]}"})
+        _mark_failed(job_ref, idx, f"ffmpeg failed: {e.stderr.decode()[:300]}")
     except Exception as e:  # noqa: BLE001
         traceback.print_exc()
-        _set_video(job_ref, idx, {"status": "failed", "error": f"{type(e).__name__}: {e}"})
-
-    _maybe_finalize_job(job_ref)
+        _mark_failed(job_ref, idx, f"{type(e).__name__}: {e}")
+    finally:
+        try:
+            _maybe_finalize_job(job_ref)
+        except Exception:  # finalize is best-effort; the API also self-heals on read
+            traceback.print_exc()
 
 
 def _set_video(job_ref, idx: int, patch: Dict[str, Any]) -> None:
-    from google.cloud import firestore
+    """Update only THIS task's fields (videos.<idx>.<key>). No read-modify-write,
+    so concurrent tasks touch disjoint field paths and never abort each other —
+    this is what eliminates the cross-transaction contention seen under fan-out.
+    Bounded retry/backoff absorbs any transient per-document write throttling."""
+    from google.cloud.firestore_v1.field_path import FieldPath
 
-    @firestore.transactional
-    def _txn(txn):
-        data = job_ref.get(transaction=txn).to_dict() or {}
-        videos = data.get("videos", [])
-        for v in videos:
-            if v.get("idx") == idx:
-                v.update(patch)
-        txn.update(job_ref, {"videos": videos})
+    updates = {FieldPath("videos", str(idx), k): v for k, v in patch.items()}
+    last = None
+    for attempt in range(8):
+        try:
+            job_ref.update(updates)
+            return
+        except Exception as e:  # noqa: BLE001 — transient Aborted/Unavailable/DeadlineExceeded
+            last = e
+            time.sleep(min(2.0, 0.1 * (2 ** attempt)) + random.random() * 0.15)
+    raise last
 
-    _txn(job_ref._client.transaction())
+
+def _mark_failed(job_ref, idx: int, error: str) -> None:
+    """Best-effort terminal write for the failure path — must not raise."""
+    try:
+        _set_video(job_ref, idx, {"status": "failed", "error": error})
+    except Exception:  # noqa: BLE001
+        traceback.print_exc()
+
+
+def _video_values(videos) -> List[Dict[str, Any]]:
+    """Videos as a list, accepting the map schema or the legacy array schema."""
+    if isinstance(videos, dict):
+        return list(videos.values())
+    return list(videos or [])
 
 
 def _maybe_finalize_job(job_ref) -> None:
@@ -172,8 +198,8 @@ def _maybe_finalize_job(job_ref) -> None:
     @firestore.transactional
     def _txn(txn):
         data = job_ref.get(transaction=txn).to_dict() or {}
-        videos = data.get("videos", [])
-        if any(v.get("status") in ("pending", "running") for v in videos):
+        videos = _video_values(data.get("videos"))
+        if not videos or any(v.get("status") in ("pending", "running") for v in videos):
             return
         any_fail = any(v.get("status") == "failed" for v in videos)
         txn.update(job_ref, {"status": "failed" if any_fail else "done"})

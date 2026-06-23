@@ -3,6 +3,7 @@ import dataclasses, datetime
 from fastapi import APIRouter, Depends, HTTPException
 from web.backend.users import ROLES, STATUSES
 from web.backend.schemas import SetUserReq
+from web.backend.routes_runs import _to_status, _reconcile
 
 
 def build_admin_router(require_admin, get_user_repo, get_run_repo, get_video_repo, settings):
@@ -40,7 +41,7 @@ def build_admin_router(require_admin, get_user_repo, get_run_repo, get_video_rep
     def admin_runs(user: str | None = None, account=Depends(require_admin),
                    rrepo=Depends(get_run_repo)):
         recs = rrepo.list_by_owner(user) if user else rrepo.list_all()
-        return {"runs": recs}
+        return {"runs": [_to_status(_reconcile(rrepo, r)).model_dump() for r in recs]}
 
     @router.get("/admin/videos")
     def admin_videos(user: str | None = None, account=Depends(require_admin),
