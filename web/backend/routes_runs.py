@@ -56,7 +56,7 @@ def build_runs_router(get_gcs, get_video_repo, get_run_repo, get_runner,
         rec = rrepo.get(run_id)
         if not _can_view(rec, account):
             raise HTTPException(404, "run not found")
-        v = next((x for x in rec["videos"] if x["video_id"] == video_id), None)
+        v = next((x for x in video_list(rec.get("videos")) if x["video_id"] == video_id), None)
         if not v or v["status"] != "done":
             raise HTTPException(404, "result not ready")
         return {"url": gcs.signed_get_url(f"runs/{run_id}/results/{video_id}.json")}

@@ -115,6 +115,21 @@ def test_get_run_self_heals_stuck_status():
     assert [vv["idx"] for vv in body["videos"]] == [0, 1]  # map serialized in idx order
 
 
+def test_result_url_for_done_video_in_map_schema():
+    # Regression: result_url iterated rec["videos"] as a list; on the map schema
+    # that walks the keys (strings) and 500s. Must resolve a done video's URL.
+    import dataclasses, datetime
+    from web.backend.runs import RunRecord
+    c,g,v,r,rn = client()
+    rec = RunRecord(run_id="mr1", owner_email="dev@local", created_at=datetime.datetime(2026,1,1,tzinfo=datetime.timezone.utc),
+                    status="done", video_count=1,
+                    videos={"0":{"idx":0,"video_id":"vid0","filename":"a.mp4","object_path":"p","status":"done","duration_s":1.0,"t_mix_90_s":None,"t_mix_95_s":None,"t_mix_99_s":None,"error":None}})
+    r.db[rec.run_id]=dataclasses.asdict(rec)
+    resp = c.get("/api/runs/mr1/result/vid0")
+    assert resp.status_code == 200
+    assert resp.json()["url"].startswith("https://get/runs/mr1/results/vid0.json")
+
+
 def test_finalize_rejects_foreign_path():
     c,g,v,r,rn = client()
     assert c.post("/api/videos/x:finalize",
