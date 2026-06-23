@@ -78,6 +78,25 @@ def test_finalize_then_run_triggers_worker():
     assert run["status"] == "submitted"
 
 
+def test_admin_can_view_foreign_run():
+    import dataclasses, datetime
+    from web.backend.runs import RunRecord
+    c,g,v,r,rn = client()  # dev_no_auth -> caller is admin
+    rec = RunRecord(run_id="foreignrun01", owner_email="someoneelse@lemnisca.bio",
+                    created_at=datetime.datetime(2026,1,1,tzinfo=datetime.timezone.utc),
+                    status="done", video_count=1,
+                    videos=[{"idx":0,"video_id":"vx","filename":"c.mp4","object_path":"p",
+                             "status":"failed","duration_s":None,"t_mix_90_s":None,
+                             "t_mix_95_s":None,"t_mix_99_s":None,"error":"boom"}])
+    r.db[rec.run_id] = dataclasses.asdict(rec)
+    resp = c.get("/api/runs/foreignrun01")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["owner_email"] == "someoneelse@lemnisca.bio"
+    assert body["videos"][0]["status"] == "failed"
+    assert body["videos"][0]["error"] == "boom"
+
+
 def test_finalize_rejects_foreign_path():
     c,g,v,r,rn = client()
     assert c.post("/api/videos/x:finalize",

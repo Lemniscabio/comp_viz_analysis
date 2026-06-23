@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, RunStatus } from "../lib/api";
+import { useMe, isAdmin } from "../lib/me";
 import { Spinner } from "../components/Spinner";
 import { SkeletonRows } from "../components/Skeleton";
 
@@ -11,20 +12,22 @@ function RunBadge({ status }: { status: string }) {
 }
 
 export function StatusView() {
+  const me = useMe();
+  const admin = isAdmin(me);
   const [runs, setRuns] = useState<RunStatus[]>([]);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
     let alive = true;
     const tick = async () => {
-      try { const r = await api.listRuns(); if (alive) setRuns(r.runs); } catch {}
+      try { const r = admin ? await api.adminRuns() : await api.listRuns(); if (alive) setRuns(r.runs); } catch {}
       if (alive) setLoading(false);
       if (alive) setTimeout(tick, 4000);
     };
     tick(); return () => { alive = false; };
-  }, []);
+  }, [admin]);
   return (
     <div>
-      <h2>Runs</h2>
+      <h2>{admin ? "Runs (all users)" : "Runs"}</h2>
       {loading && (
         <div className="kc-card" style={{ padding: 16 }}>
           <SkeletonRows rows={4} height={40} />
@@ -36,13 +39,13 @@ export function StatusView() {
           <div className="kc-scroll">
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
             <thead><tr style={{ textAlign: "left", color: "var(--kc-muted)" }}>
-              <th style={{ padding: "10px 12px" }}>Run</th><th style={{ padding: "10px 12px" }}>Videos</th><th style={{ padding: "10px 12px" }}>Status</th><th style={{ padding: "10px 12px" }}>Done</th><th style={{ padding: "10px 12px" }}></th></tr></thead>
+              <th style={{ padding: "10px 12px" }}>Run</th>{admin && <th style={{ padding: "10px 12px" }}>Owner</th>}<th style={{ padding: "10px 12px" }}>Videos</th><th style={{ padding: "10px 12px" }}>Status</th><th style={{ padding: "10px 12px" }}>Done</th><th style={{ padding: "10px 12px" }}></th></tr></thead>
             <tbody className="kc-stagger">
               {runs.map((r) => {
                 const done = r.videos.filter((v) => v.status === "done" || v.status === "failed").length;
                 return (
                   <tr key={r.run_id} style={{ borderTop: "1px solid var(--kc-border)" }}>
-                    <td style={{ padding: "10px 12px" }}>{r.run_id}</td><td style={{ padding: "10px 12px" }}>{r.video_count}</td>
+                    <td style={{ padding: "10px 12px" }}>{r.run_id}</td>{admin && <td style={{ padding: "10px 12px" }}>{r.owner_email}</td>}<td style={{ padding: "10px 12px" }}>{r.video_count}</td>
                     <td style={{ padding: "10px 12px" }}><RunBadge status={r.status} /></td>
                     <td style={{ padding: "10px 12px" }}>{done}/{r.video_count}</td>
                     <td style={{ padding: "10px 12px" }}><Link to={`/runs/${r.run_id}`}>view results</Link></td>

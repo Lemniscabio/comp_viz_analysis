@@ -10,6 +10,10 @@ def build_runs_router(get_gcs, get_video_repo, get_run_repo, get_runner,
                       require_runner, require_active, settings):
     router = APIRouter(prefix="/api")
 
+    def _can_view(rec, account) -> bool:
+        return bool(rec) and (account[1].role == "admin"
+                              or rec["owner_email"] == account[0].email.lower())
+
     @router.post("/runs", response_model=RunStatus)
     def create_run(req: RunReq, account=Depends(require_runner), gcs=Depends(get_gcs),
                    vrepo=Depends(get_video_repo), rrepo=Depends(get_run_repo),
@@ -37,7 +41,7 @@ def build_runs_router(get_gcs, get_video_repo, get_run_repo, get_runner,
     @router.get("/runs/{run_id}", response_model=RunStatus)
     def get_run(run_id: str, account=Depends(require_active), rrepo=Depends(get_run_repo)):
         rec = rrepo.get(run_id)
-        if not rec or rec["owner_email"] != account[0].email.lower():
+        if not _can_view(rec, account):
             raise HTTPException(404, "run not found")
         return _to_status(rec)
 
@@ -49,7 +53,7 @@ def build_runs_router(get_gcs, get_video_repo, get_run_repo, get_runner,
     def result_url(run_id: str, video_id: str, account=Depends(require_active),
                    gcs=Depends(get_gcs), rrepo=Depends(get_run_repo)):
         rec = rrepo.get(run_id)
-        if not rec or rec["owner_email"] != account[0].email.lower():
+        if not _can_view(rec, account):
             raise HTTPException(404, "run not found")
         v = next((x for x in rec["videos"] if x["video_id"] == video_id), None)
         if not v or v["status"] != "done":
