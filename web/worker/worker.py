@@ -159,17 +159,16 @@ def main() -> None:
 
 
 def _set_video(job_ref, idx: int, patch: Dict[str, Any]) -> None:
-    """Update only THIS task's fields (videos.<idx>.<key>). No read-modify-write,
-    so concurrent tasks touch disjoint field paths and never abort each other —
-    this is what eliminates the cross-transaction contention seen under fan-out.
-    Bounded retry/backoff absorbs any transient per-document write throttling."""
-    from google.cloud.firestore_v1.field_path import FieldPath
-
-    updates = {FieldPath("videos", str(idx), k): v for k, v in patch.items()}
+    """Merge only THIS task's fields into videos.<idx>. set(merge=True) deep-merges
+    the given leaves and leaves every other video (and field) untouched — no
+    read-modify-write, so concurrent tasks never abort each other. This is what
+    eliminates the cross-transaction contention seen under fan-out. Bounded
+    retry/backoff absorbs any transient per-document write throttling."""
+    data = {"videos": {str(idx): dict(patch)}}
     last = None
     for attempt in range(8):
         try:
-            job_ref.update(updates)
+            job_ref.set(data, merge=True)
             return
         except Exception as e:  # noqa: BLE001 — transient Aborted/Unavailable/DeadlineExceeded
             last = e

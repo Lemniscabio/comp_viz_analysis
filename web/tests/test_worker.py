@@ -34,18 +34,15 @@ def test_results_doc_shape_includes_series_and_levels():
     assert doc["duration_s"] == 1.0
 
 
-def test_set_video_writes_only_its_own_field_paths():
-    # No whole-document read-modify-write: the update touches only videos.<idx>.<k>,
-    # which is what stops parallel tasks from contending.
-    from google.cloud import firestore
+def test_set_video_merges_only_its_own_video():
+    # A merge write scoped to videos.<idx> — no read of the whole doc, no rewrite
+    # of sibling videos, which is what stops parallel tasks from contending.
     captured = {}
     class FakeRef:
-        def update(self, updates): captured.update(updates)
+        def set(self, data, merge=False): captured["data"] = data; captured["merge"] = merge
     w._set_video(FakeRef(), 7, {"status": "running", "error": None})
-    paths = {k.to_api_repr() if hasattr(k, "to_api_repr") else k for k in captured}
-    assert "videos.`7`.status" in paths or "videos.7.status" in paths
-    # the call must not read/rewrite the whole videos collection
-    assert all("videos" in (p if isinstance(p, str) else "") or True for p in paths)
+    assert captured["merge"] is True                       # must be a merge, not overwrite
+    assert captured["data"] == {"videos": {"7": {"status": "running", "error": None}}}
 
 
 def test_video_values_accepts_map_and_legacy_list():
